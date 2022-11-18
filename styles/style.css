@@ -1,0 +1,80 @@
+#opengl-canvas {
+    border: none;
+}
+
+#location, #shader_source, #console {
+    width: 622px;
+    height: 200px;
+    float: left;
+    clear: both;
+    resize: none;
+}
+
+button {
+    width: 190px;
+    margin: 0px 8px;
+    float: left;
+}
+
+#save-button {
+    width: 250px;
+}
+
+.cell {
+    display: table-cell;
+    vertical-align: top;
+}
+
+.row {
+    margin: 8px 0px;
+}
+
+div.polaroid {
+  position: relative;
+  width: 256px;
+  background-color: white;
+  box-shadow: 0 4px 8px 0 rgba(0, 0, 0, 0.2), 0 6px 20px 0 rgba(0, 0, 0, 0.19);
+  margin-bottom: 25px;
+}
+
+div.container {
+  text-align: center;
+  padding: 10px 20px;
+}
+
+div.container div {
+  position: absolute;
+  bottom: 0;
+  right: 0;
+  background: black;
+  color: white;
+  margin-bottom: 45px;
+  font-family: sans-serif;
+  opacity: 0;
+  visibility: hidden;
+  -webkit-transition: visibility 0s, opacity 0.5s linear; 
+  transition: visibility 0s, opacity 0.5s linear;
+}
+
+div.polaroid:hover div.container div {
+  width: 250px;
+  padding: 5px 1px;
+  visibility: visible;
+  opacity: 0.7;
+}
+
+.image-column {
+  float: left;
+  padding: 0px 25px;
+}
+
+/* Clearfix (clear floats) */
+.image-row::after {
+  content: "";
+  clear: both;
+  display: table;
+}
+
+.shader_location_input {
+    text-align: center;
+}

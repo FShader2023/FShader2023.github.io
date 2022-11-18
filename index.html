@@ -2,12 +2,12 @@
 <html>
 <head>
 <title>FShader Bug Viewer</title>
-<link rel="stylesheet" type="text/css" href="style.css">
+<link rel="stylesheet" type="text/css" href="styles/style.css">
 
-<script type="text/javascript" src="render.js"></script>
-<script type="text/javascript" src="file_helper.js"></script>
-<script type="text/javascript" src="shader_src.js"></script>
-<script type="text/javascript" src="shader_related.js"></script>
+<script type="text/javascript" src="scripts/render.js"></script>
+<script type="text/javascript" src="scripts/file_helper.js"></script>
+<script type="text/javascript" src="scripts/shader_src.js"></script>
+<script type="text/javascript" src="scripts/shader_related.js"></script>
 </head>
 <body onload="setTimeout(startSafe, 1000)">
 
@@ -17,7 +17,7 @@
         <canvas id="opengl-canvas" style="border: none;" width="256" height="256"></canvas>
         <div class="container">
           <p>Actual rendered image</p>
-          <div>Click to load or change the shader</div>
+          <div>Click to load shader from local disk</div>
         </div>
       </div>
     </div>
@@ -27,7 +27,7 @@
         <img src="blank.png" id="expected-image" style="width:256;height:256">
         <div class="container">
           <p>Expected rendered image</p>
-          <div>Click to load or change the image</div>
+          <div>Click to load image from local disk</div>
         </div>
       </div>
     </div>
@@ -41,7 +41,7 @@
 
     <div class="row">
       <div class="cell">
-        <label>Select the bug:  </label>
+        <label>Select to view the 6 bugs that FShader discovered: (START HERE!) </label>
         <select id="select-bugs" onchange="loadAndRender()">
           <option value="default">-------</option>
           <option value="bug1">Bug1</option>
@@ -62,15 +62,15 @@
 
     <div class="row">
       <div class="cell">
-          <button title="Load a GLSL shader" onclick="loadFileAsText()">Load a GLSL shader</button>
+          <button title="Load shader from local disk" onclick="loadFileAsText()">Load shader from local disk</button>
       </div>
       <div class="cell">
-        <button id="start" title="Starts rendering fragment shader" onclick="startSafe()">Start
+        <button id="start" title="Start rendering fragment shader" onclick="startSafe()">Start
             rendering
         </button>
       </div>
       <div class="cell">
-          <button id="stop" title="Stops rendering" onclick="stop()">Stop rendering</button>
+          <button id="stop" title="Stop rendering" onclick="stop()">Stop rendering</button>
       </div>
     </div>
 
