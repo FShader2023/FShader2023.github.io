@@ -2,8 +2,8 @@
     border: none;
 }
 
-#location, #shader_source, #console {
-    width: 622px;
+#shader_source, #console {
+    width: 100%;
     height: 200px;
     float: left;
     clear: both;
@@ -11,18 +11,49 @@
 }
 
 button {
-    width: 190px;
-    margin: 0px 8px;
-    float: left;
+    width: max-content;
 }
 
-#save-button {
-    width: 250px;
+/* The grid container */
+.grid-container {
+  display: grid;
+  grid-template-areas: 
+    'left right';
+  grid-column-gap: 10px;
+  /* width: min-content; */
+} 
+
+.left {
+  display: grid;
+  padding: 10px;
+  text-align: left;
+  float: left;
+  max-width: 618px;
+}
+
+.left {
+  grid-area: left;
+}
+
+.right {
+  width: 80%;
+  float: left;
+  max-width: 600px;
 }
 
 .cell {
-    display: table-cell;
+    display: flex;
     vertical-align: top;
+}
+
+button {
+  padding: 0px 10%;
+}
+
+.button-row {
+  display: flex;
+  justify-content: space-between;
+  padding: 0px 10%;
 }
 
 .row {
