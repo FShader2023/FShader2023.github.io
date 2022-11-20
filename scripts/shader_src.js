@@ -740,6 +740,271 @@ var bug1Src = "#version 300 es\n"+
 " fragColor = mix(fragColor_2, fragColor_1, 1.0 - fragColor_2.a + iTime);\n"+
 "}\n"+
 "";
+
+var bug1_shader1 = "#version 300 es\n"+
+"precision highp float;\n"+
+"\n"+
+"layout(location = 0) out vec4 fragColor;\n"+
+"\n"+
+"uniform vec2 iResolution;\n"+
+"\n"+
+"uniform float iTime;\n"+
+"\n"+
+"uniform float iTimeDelta;\n"+
+"\n"+
+"uniform vec4 iMouse;\n"+
+"\n"+
+"uniform int iFrame;\n"+
+"\n"+
+"float sdPlane(vec3 p)\n"+
+"{\n"+
+" return p.y;\n"+
+"}\n"+
+"float sdBox(vec3 p, vec3 b)\n"+
+"{\n"+
+" vec3 d = abs(p) - b;\n"+
+" return min(max(d.x, max(d.y, d.z)), 0.0) + length(max(d, 0.0));\n"+
+"}\n"+
+"float map(vec3 pos)\n"+
+"{\n"+
+" vec3 qos = vec3(fract(pos.x + 0.5) - 0.5, pos.yz);\n"+
+" return min(sdPlane(pos.xyz - vec3(0.0, 0.00, 0.0)), sdBox(qos.xyz - vec3(0.0, 0.25, 0.0), vec3(0.2, 0.5, 0.2)));\n"+
+"}\n"+
+"float calcSoftshadow(vec3 ro, vec3 rd, float mint, float tmax, int technique)\n"+
+"{\n"+
+" float res = 1.0;\n"+
+" float t = mint;\n"+
+" float ph = 1e10;\n"+
+" for(int i = 0; i < 32; i ++)\n"+
+"  {\n"+
+"   float h = map(ro + rd * t);\n"+
+"   if(technique == 0)\n"+
+"    {\n"+
+"     res = min(res, 10.0 * h / t);\n"+
+"    }\n"+
+"   else\n"+
+"    {\n"+
+"     float y = h * h / (2.0 * ph);\n"+
+"     float d = sqrt(h * h - y * y);\n"+
+"     res = min(res, 10.0 * d / max(0.0, t - y));\n"+
+"     ph = h;\n"+
+"    }\n"+
+"   t += h;\n"+
+"   if(res < 0.0001 || t > tmax)\n"+
+"    {\n"+
+"     break;\n"+
+"    }\n"+
+"  }\n"+
+" res = clamp(res, 0.0, 1.0);\n"+
+" return res * res * (3.0 - 2.0 * res);\n"+
+"}\n"+
+"vec3 calcNormal(vec3 pos)\n"+
+"{\n"+
+" vec2 e = vec2(1.0, - 1.0) * 0.5773 * 0.0005;\n"+
+" return normalize(e.xyy * map(pos + e.xyy) + e.yyx * map(pos + e.yyx) + e.yxy * map(pos + e.yxy) + e.xxx * map(pos + e.xxx));\n"+
+"}\n"+
+"float castRay(vec3 ro, vec3 rd)\n"+
+"{\n"+
+" float tmin = 1.0;\n"+
+" float tmax = 20.0;\n"+
+" float tp1 = (0.0 - ro.y) / rd.y;\n"+
+" if(tp1 > 0.0)\n"+
+"  {\n"+
+"   tmax = min(tmax, tp1);\n"+
+"  }\n"+
+" float tp2 = (1.0 - ro.y) / rd.y;\n"+
+" if(tp2 > 0.0)\n"+
+"  {\n"+
+"   if(ro.y > 1.0)\n"+
+"    {\n"+
+"     tmin = max(tmin, tp2);\n"+
+"    }\n"+
+"   else\n"+
+"    {\n"+
+"     tmax = min(tmax, tp2);\n"+
+"    }\n"+
+"  }\n"+
+" float t = tmin;\n"+
+" for(int i = 0; i < 64; i ++)\n"+
+"  {\n"+
+"   float precis = 0.0005 * t;\n"+
+"   float res = map(ro + rd * t);\n"+
+"   if(res < precis || t > tmax)\n"+
+"    {\n"+
+"     break;\n"+
+"    }\n"+
+"   t += res;\n"+
+"  }\n"+
+" if(t > tmax)\n"+
+"  {\n"+
+"   t = - 1.0;\n"+
+"  }\n"+
+" return t;\n"+
+"}\n"+
+"float calcAO(vec3 pos, vec3 nor)\n"+
+"{\n"+
+" float occ = 0.0;\n"+
+" float sca = 1.0;\n"+
+" for(int i = 0; i < 5; i ++)\n"+
+"  {\n"+
+"   float h = 0.001 + 0.15 * float(i) / 4.0;\n"+
+"   float d = map(pos + h * nor);\n"+
+"   occ += (h - d) * sca;\n"+
+"   sca *= 0.95;\n"+
+"  }\n"+
+" return clamp(1.0 - 1.5 * occ, 0.0, 1.0);\n"+
+"}\n"+
+"vec3 render(vec3 ro, vec3 rd, int technique)\n"+
+"{\n"+
+" vec3 col = vec3(0.0);\n"+
+" float t = castRay(ro, rd);\n"+
+" if(t > - 0.5)\n"+
+"  {\n"+
+"   vec3 pos = ro + t * rd;\n"+
+"   vec3 nor = calcNormal(pos);\n"+
+"   vec3 mate = vec3(0.3);\n"+
+"   vec3 lig = normalize(vec3(- 0.1, 0.3, 0.6));\n"+
+"   vec3 hal = normalize(lig - rd);\n"+
+"   float dif = clamp(dot(nor, lig), 0.0, 1.0) * calcSoftshadow(pos, lig, 0.01, 3.0, technique);\n"+
+"   float spe = pow(max(clamp(dot(nor, hal), 0.0, 1.0), 1e-9), 16.0) * dif * (0.04 + 0.96 * pow(max(clamp(1.0 + dot(hal, rd), 0.0, 1.0), 1e-9), 5.0));\n"+
+"   col = mate * 4.0 * dif * vec3(1.00, 0.70, 0.5);\n"+
+"   col += 12.0 * spe * vec3(1.00, 0.70, 0.5);\n"+
+"   float occ = calcAO(pos, nor);\n"+
+"   float amb = clamp(0.5 + 0.5 * nor.y, 0.0, 1.0);\n"+
+"   col += mate * amb * occ * vec3(0.0, 0.08, 0.1);\n"+
+"   col *= exp(- 0.0005 * t * t * t);\n"+
+"  }\n"+
+" return col;\n"+
+"}\n"+
+"mat3 setCamera(vec3 ro, vec3 ta, float cr)\n"+
+"{\n"+
+" vec3 cw = normalize(ta - ro);\n"+
+" vec3 cp = vec3(sin(cr), cos(cr), 0.0);\n"+
+" vec3 cu = normalize(cross(cw, cp));\n"+
+" vec3 cv = normalize(cross(cu, cw));\n"+
+" return mat3(cu, cv, cw);\n"+
+"}\n"+
+"void main()\n"+
+"{\n"+
+" float an = 12.0 - sin(0.1 * iTime);\n"+
+" vec3 ro = vec3(3.0 * cos(0.1 * an), 1.0, - 3.0 * sin(0.1 * an));\n"+
+" vec3 ta = vec3(0.0, - 0.4, 0.0);\n"+
+" mat3 ca = setCamera(ro, ta, 0.0);\n"+
+" int technique = (fract(iTime / 2.0) > 0.5) ? 1 : 0;\n"+
+" vec3 tot = vec3(0.0);\n"+
+" for(int m = 0; m < 2; m ++)\n"+
+"  {\n"+
+"   for(int n = 0; n < 2; n ++)\n"+
+"    {\n"+
+"     vec2 o = vec2(float(m), float(n)) / float(2) - 0.5;\n"+
+"     vec2 p = (- iResolution.xy + 2.0 * (gl_FragCoord.xy + o)) / iResolution.y;\n"+
+"     vec3 rd = ca * normalize(vec3(p.xy, 2.0));\n"+
+"     vec3 col = render(ro, rd, technique);\n"+
+"     col = pow(max(col, 1e-9), vec3(0.4545));\n"+
+"     tot += col;\n"+
+"    }\n"+
+"  }\n"+
+" tot /= float(2 * 2);\n"+
+" fragColor = vec4(tot, 1.0);\n"+
+" fragColor.w = 1.0;\n"+
+"}\n"+
+"";
+
+var bug1_shader2 = "#version 300 es\n"+
+"precision highp float;\n"+
+"\n"+
+"layout(location = 0) out vec4 fragColor;\n"+
+"\n"+
+"uniform vec2 iResolution;\n"+
+"\n"+
+"uniform float iTime;\n"+
+"\n"+
+"uniform float iTimeDelta;\n"+
+"\n"+
+"uniform vec4 iMouse;\n"+
+"\n"+
+"uniform int iFrame;\n"+
+"\n"+
+"float time;\n"+
+"\n"+
+"float box(vec3 p, vec3 r)\n"+
+"{\n"+
+" p = abs(p) - r;\n"+
+" return max(max(p.x, p.y), p.z);\n"+
+"}\n"+
+"float sphere(vec3 p, float r)\n"+
+"{\n"+
+" return length(p) - r;\n"+
+"}\n"+
+"float torus(vec3 p, vec2 t)\n"+
+"{\n"+
+" vec2 q = vec2(length(p.xz) - t.x, p.y);\n"+
+" return length(q) - t.y;\n"+
+"}\n"+
+"float map(vec3 p)\n"+
+"{\n"+
+" p = mod(p + vec3(2., 10., 5.), vec3(4., 20., 10.)) - vec3(2., 10., 5.);\n"+
+" float mainBox = box(p, vec3(sin(iTime) / 2. + .5));\n"+
+" float leftSphere = sphere(p + vec3(0, 0, 3), sin(iTime + 3.1415926538 * 2. / 3.) / 2. + .5);\n"+
+" float rightTorus = torus(p - vec3(0, 0, 3), vec2(1., (sin(iTime + 3.1415926538 * 4. / 3.) / 2. + .5) * .5));\n"+
+" float scene = min(mainBox, leftSphere);\n"+
+" scene = min(scene, rightTorus);\n"+
+" return scene;\n"+
+"}\n"+
+"float raycast(vec3 ro, vec3 rd)\n"+
+"{\n"+
+" float dist;\n"+
+" float res = 0.;\n"+
+" for(int i = 0; i < 128; i ++)\n"+
+"  {\n"+
+"   dist = map(ro + rd * res);\n"+
+"   if(dist < .0001 || res > 120.)\n"+
+"    {\n"+
+"     break;\n"+
+"    }\n"+
+"   res += dist;\n"+
+"  }\n"+
+" if(res > 120.)\n"+
+"  {\n"+
+"   res = 0.;\n"+
+"  }\n"+
+" return res;\n"+
+"}\n"+
+"void main()\n"+
+"{\n"+
+" vec2 uv = (gl_FragCoord.xy / iResolution.xy - 0.5) / vec2(iResolution.y / iResolution.x, 1);\n"+
+" time = mod(iTime, 62.82);\n"+
+" vec3 rayOrigin = vec3(cos(time * .2) * 5., 2, sin(time * .2) * 5.);\n"+
+" vec3 cameraForward = normalize(vec3(0) - rayOrigin);\n"+
+" vec3 cameraLeft = normalize(cross(cameraForward, vec3(0, 1, 0)));\n"+
+" vec3 cameraUp = normalize(cross(cameraLeft, cameraForward));\n"+
+" vec3 rayDirection = mat3(cameraLeft, cameraUp, cameraForward) * normalize(vec3(uv, .5));\n"+
+" vec3 lightDirection = normalize(vec3(- .1, .4, - .3));\n"+
+" vec3 backgroundColor = vec3(.1, .1, .1) - length(uv) * .1;\n"+
+" vec3 color = backgroundColor;\n"+
+" float result = raycast(rayOrigin, rayDirection);\n"+
+" if(result > 0.)\n"+
+"  {\n"+
+"   vec3 hitPos = rayOrigin + rayDirection * result;\n"+
+"   vec2 e = vec2(.00035, - .00035);\n"+
+"   vec3 normals = normalize(e.xyy * map(hitPos + e.xyy) + e.yyx * map(hitPos + e.yyx) + e.yxy * map(hitPos + e.yxy) + e.xxx * map(hitPos + e.xxx));\n"+
+"   vec3 albedo = vec3(.0, .2, .4);\n"+
+"   float diffuse = max(0., dot(normals, lightDirection));\n"+
+"   float fresnel = pow(max(1. + dot(normals, rayDirection), 1e-9), 4.);\n"+
+"   float specular = pow(max(max(dot(reflect(- lightDirection, normals), - rayDirection), 0.), 1e-9), 30.);\n"+
+"   float ao = clamp(map(hitPos + normals * .05) / .05, 0., 1.);\n"+
+"   float sss = smoothstep(0., 1., map(hitPos + lightDirection * .4) / .4);\n"+
+"   if(specular < 1.)\n"+
+"    {\n"+
+"     color = mix(specular + albedo * (ao + .2) * (diffuse + sss * .1), backgroundColor, fresnel);\n"+
+"    }\n"+
+"   color = mix(backgroundColor, color, exp(- .002 * result * result * result));\n"+
+"  }\n"+
+" fragColor = vec4(pow(max(color, 1e-9), vec3(.4545)), 1);\n"+
+" fragColor.w = 1.0;\n"+
+"}\n"+
+"";
+
 var bug2Src = "#version 300 es\n"+
 "precision highp float;\n"+
 "\n"+
@@ -7626,6 +7891,622 @@ var bug2Src = "#version 300 es\n"+
 " fragColor = mix(fragColor_2, fragColor_1, 1.0 - fragColor_2.a + iTime);\n"+
 "}\n"+
 "";
+
+var bug2_shader1 = "#version 300 es\n"+
+"precision highp float;\n"+
+"\n"+
+"layout(location = 0) out vec4 fragColor;\n"+
+"\n"+
+"uniform vec2 iResolution;\n"+
+"\n"+
+"uniform float iTime;\n"+
+"\n"+
+"uniform float iTimeDelta;\n"+
+"\n"+
+"uniform vec4 iMouse;\n"+
+"\n"+
+"uniform int iFrame;\n"+
+"\n"+
+"float stretch, gunsUp, gunsForward, edWalk, edTwist, edDown, edShoot, doorOpen, glow = 0.0;\n"+
+"\n"+
+"struct MarchData {\n"+
+" float d;\n"+
+" vec3 mat;\n"+
+" float specPower;\n"+
+"} ;\n"+
+"\n"+
+"mat2 rot(float a)\n"+
+"{\n"+
+" float c = cos(a);\n"+
+" float s = sin(a);\n"+
+" return mat2(c, s, - s, c);\n"+
+"}\n"+
+"float remap(float f, float in1, float in2, float out1, float out2)\n"+
+"{\n"+
+" return mix(out1, out2, clamp((f - in1) / (in2 - in1), 0., 1.));\n"+
+"}\n"+
+"float sdBox(vec3 p, vec3 b)\n"+
+"{\n"+
+" vec3 q = abs(p) - b;\n"+
+" return length(max(q, 0.)) + min(max(q.x, max(q.y, q.z)), 0.);\n"+
+"}\n"+
+"float sdChamferedCube(vec3 p, vec3 r, float c)\n"+
+"{\n"+
+" float cube = sdBox(p, r);\n"+
+" p.xz *= rot(.78525);\n"+
+" r.xz *= - c / 1.41 + 1.41;\n"+
+" return max(cube, sdBox(p, r));\n"+
+"}\n"+
+"float sdTriPrism(vec3 p, vec2 h)\n"+
+"{\n"+
+" vec3 q = abs(p);\n"+
+" return max(q.z - h.y, max(q.x * .866025 + p.y * .5, - p.y) - h.x * .5);\n"+
+"}\n"+
+"float sdCappedCone(vec3 p, vec3 a, vec3 b, float ra, float rb)\n"+
+"{\n"+
+" float rba = rb - ra;\n"+
+" float baba = dot(b - a, b - a);\n"+
+" float papa = dot(p - a, p - a);\n"+
+" float paba = dot(p - a, b - a) / baba;\n"+
+" float x = sqrt(papa - paba * paba * baba);\n"+
+" float cax = max(0., x - ((paba < .5) ? ra : rb));\n"+
+" float cay = abs(paba - .5) - .5;\n"+
+" float f = clamp((rba * (x - ra) + paba * baba) / (rba * rba + baba), 0., 1.);\n"+
+" float cbx = x - ra - f * rba;\n"+
+" float cby = paba - f;\n"+
+" return ((cbx < 0. && cay < 0.) ? - 1. : 1.) * sqrt(min(cax * cax + cay * cay * baba, cbx * cbx + cby * cby * baba));\n"+
+"}\n"+
+"float sdCappedCylinder(vec3 p, float h, float r)\n"+
+"{\n"+
+" vec2 d = abs(vec2(length(p.xy), p.z)) - vec2(h, r);\n"+
+" return min(max(d.x, d.y), 0.) + length(max(d, 0.));\n"+
+"}\n"+
+"float sdCapsule(vec3 p, vec3 a, vec3 b, float r)\n"+
+"{\n"+
+" vec3 pa = p - a;\n"+
+" vec3 ba = b - a;\n"+
+" return length(pa - ba * clamp(dot(pa, ba) / dot(ba, ba), 0., 1.)) - r;\n"+
+"}\n"+
+"float sdOctogon(vec2 p, float r)\n"+
+"{\n"+
+" const vec3 k = vec3(- .92387953, .38268343, .41421356);\n"+
+" p = abs(p);\n"+
+" p -= 2. * min(dot(k.xy, p), 0.) * k.xy;\n"+
+" p -= 2. * min(dot(vec2(- k.x, k.y), p), 0.) * vec2(- k.x, k.y);\n"+
+" p -= vec2(clamp(p.x, - k.z * r, k.z * r), r);\n"+
+" return length(p) * sign(p.y);\n"+
+"}\n"+
+"vec3 getRayDir(vec3 ro, vec3 lookAt, vec2 uv)\n"+
+"{\n"+
+" vec3 forward = normalize(lookAt - ro);\n"+
+" vec3 right = normalize(cross(vec3(0, 1, 0), forward));\n"+
+" return normalize(forward + right * uv.x + cross(forward, right) * uv.y);\n"+
+"}\n"+
+"MarchData minResult(MarchData a, MarchData b)\n"+
+"{\n"+
+" if(a.d < b.d)\n"+
+"  {\n"+
+"   return a;\n"+
+"  }\n"+
+" return b;\n"+
+"}\n"+
+"void setBodyMaterial(inout MarchData mat)\n"+
+"{\n"+
+" mat.mat = vec3(.36, .45, .5);\n"+
+" mat.specPower = 30.;\n"+
+"}\n"+
+"float legWalkAngle(float f)\n"+
+"{\n"+
+" return sin(edWalk * 3.141 * 6. * f) * .2;\n"+
+"}\n"+
+"float edZ()\n"+
+"{\n"+
+" return mix(5., - 2., edWalk);\n"+
+"}\n"+
+"float fireShock()\n"+
+"{\n"+
+" return abs(sin(edShoot * 78.5375));\n"+
+"}\n"+
+"float headSphere(vec3 p)\n"+
+"{\n"+
+" return (length(p / vec3(1, .8, 1)) - 1.) * .8;\n"+
+"}\n"+
+"MarchData headVisor(vec3 p, float h, float bump)\n"+
+"{\n"+
+" bump *= sin(p.x * 150.) * sin(p.y * 150.) * .002;\n"+
+" MarchData result;\n"+
+" result.d = sdBox(p, vec3(1, h, 2));\n"+
+" result.d = max(mix(result.d, headSphere(p), .57), - p.y) - bump;\n"+
+" result.mat = vec3(.05);\n"+
+" result.specPower = 30.;\n"+
+" return result;\n"+
+"}\n"+
+"MarchData headLower(vec3 p)\n"+
+"{\n"+
+" vec3 op = p;\n"+
+" MarchData r = headVisor(p * vec3(.95, - 1.4, .95), 1., 0.);\n"+
+" r.d = min(r.d, max(max(headVisor((p + vec3(0, .01, 0)) * vec3(.95), 1., 0.).d, p.y - .35), p.y * .625 - p.z - .66));\n"+
+" p.xy *= rot(.075 * (gunsUp - 1.) * sign(p.x));\n"+
+" p.x = abs(p.x) - 1.33;\n"+
+" p.y -= .1 - p.x * .1;\n"+
+" r.d = min(r.d, sdBox(p, vec3(.4, .06 * (1. - p.x), .3 - p.x * .2)));\n"+
+" p = op;\n"+
+" p.y = abs(abs(p.y + .147) - .0556) - .0278;\n"+
+" r.d = max(r.d, - sdBox(p + vec3(0, 0, 1.5), vec3(mix(.25, .55, - op.y), .015, .1)));\n"+
+" p = op;\n"+
+" p.y = abs(p.y + .16) - .06;\n"+
+" p.z -= - 1.1;\n"+
+" r.d = max(r.d, - max(max(sdCappedCylinder(p.xzy, 1., .03), - sdCappedCylinder(p.xzy, .55, 1.)), p.z + .2));\n"+
+" setBodyMaterial(r);\n"+
+" return r;\n"+
+"}\n"+
+"MarchData gunPod(vec3 p)\n"+
+"{\n"+
+" MarchData r;\n"+
+" setBodyMaterial(r);\n"+
+" p.yz += vec2(.1, .45);\n"+
+" vec3 pp = p;\n"+
+" pp.z = abs(pp.z) - .5;\n"+
+" r.d = sdCappedCone(pp, vec3(0), vec3(0, 0, - .1), .35 - .1, .35);\n"+
+" r.d = min(r.d, sdCappedCylinder(p, .35, .4));\n"+
+" pp = vec3(p.x, .28 - p.y, p.z);\n"+
+" r.d = min(r.d, sdTriPrism(pp, vec2(.1, .5)));\n"+
+" pp = p;\n"+
+" pp.x = abs(p.x);\n"+
+" pp.xy *= rot(.78525);\n"+
+" float fs;\n"+
+" float bump = sign(sin(pp.z * 33.3)) * .003;\n"+
+" float d = sdBox(pp, vec3(.1 - bump, .38 - bump, .34)) - .02;\n"+
+" pp = p - vec3(0, 0, - .6);\n"+
+" pp.x = abs(pp.x) - .1;\n"+
+" d = min(min(min(d, sdCappedCylinder(pp, .06, .15)), sdCappedCylinder(pp + vec3(0, .12, - .05), .06, .05)), sdBox(p + vec3(0, 0, .54), vec3(.1, .06, .04)));\n"+
+" if(d < r.d)\n"+
+"  {\n"+
+"   d = max(d, - sdCappedCylinder(pp + vec3(0, 0, .1), .03, .2));\n"+
+"   r.d = d;\n"+
+"   r.mat = vec3(.02);\n"+
+"  }\n"+
+" fs = fireShock();\n"+
+" if(fs > .5)\n"+
+"  {\n"+
+"   d = sdCappedCylinder(pp, .01 + pp.z * .05, fract(fs * 3322.423) * .5 + .9);\n"+
+"   if(d < r.d)\n"+
+"    {\n"+
+"     r.d = d;\n"+
+"     r.mat = vec3(1);\n"+
+"     glow += .1 / (.01 + d * d * 4e2);\n"+
+"    }\n"+
+"  }\n"+
+" return r;\n"+
+"}\n"+
+"MarchData arms(vec3 p)\n"+
+"{\n"+
+" const vec3 wrist = vec3(1.5, 0, 0) - vec3(0, 0, .3);\n"+
+" MarchData r;\n"+
+" setBodyMaterial(r);\n"+
+" p.x = abs(p.x);\n"+
+" p.yz += vec2(.24, 0);\n"+
+" p.xy *= rot(.15 * (gunsUp - 1.));\n"+
+" r.d = min(sdCapsule(p, vec3(0), vec3(1.5, 0, 0), .2), sdCapsule(p, vec3(1.5, 0, 0), wrist, .2));\n"+
+" p -= wrist;\n"+
+" p.z -= gunsForward * .15;\n"+
+" return minResult(r, gunPod(p));\n"+
+"}\n"+
+"float toe(vec3 p)\n"+
+"{\n"+
+" p.yz += vec2(.1, .32);\n"+
+" return max(sdBox(p, vec3(.3 + .2 * (p.z - .18) - p.y * .228, .3 + .2 * cos((p.z - .18) * 3.69), .35)), .1 - p.y);\n"+
+"}\n"+
+"float foot(vec3 p)\n"+
+"{\n"+
+" p.z += .8;\n"+
+" p.yz *= rot(.86);\n"+
+" float d = toe(p);\n"+
+" p.xz *= rot(1.57);\n"+
+" p.x -= .43;\n"+
+" p.z = .25 - abs(p.z);\n"+
+" return min(d, toe(p));\n"+
+"}\n"+
+"MarchData waist(vec3 p)\n"+
+"{\n"+
+" MarchData r;\n"+
+" setBodyMaterial(r);\n"+
+" p.y += .65;\n"+
+" p.yz *= rot(- .2);\n"+
+" float bump;\n"+
+" float d;\n"+
+" float legAngle = legWalkAngle(1.);\n"+
+" p.xy *= rot(legAngle * .3);\n"+
+" vec3 pp = p;\n"+
+" pp.y += .3;\n"+
+" r.d = max(sdCappedCylinder(pp.zyx, .5, .5), p.y + .15);\n"+
+" bump = .5 - abs(sin(p.y * 40.)) * .03;\n"+
+" d = sdBox(p, vec3(bump, .15, bump));\n"+
+" bump = .3 - abs(sin(p.x * 40.)) * .03;\n"+
+" pp.y += .18;\n"+
+" d = min(d, sdCappedCylinder(pp.zyx, bump, .75));\n"+
+" pp.x = abs(pp.x);\n"+
+" pp.yz *= rot(- .58525 + legAngle * sign(p.x));\n"+
+" pp.x -= .98;\n"+
+" r.d = min(r.d, max(sdCappedCylinder(pp.zyx, .4, .24), - pp.y));\n"+
+" r.d = min(r.d, sdBox(pp, vec3(.24, .2, .14 + .2 * pp.y)));\n"+
+" p = pp;\n"+
+" pp.xz = abs(pp.xz) - vec2(.12, .25);\n"+
+" r.d = min(r.d, max(min(sdCappedCylinder(pp.xzy, .1, .325), sdCappedCylinder(pp.xzy, .05, .5)), pp.y));\n"+
+" p.y += .68;\n"+
+" r.d = min(r.d, sdBox(p, vec3(sign(abs(p.y) - .04) * .005 + .26, .2, .34)));\n"+
+" if(d < r.d)\n"+
+"  {\n"+
+"   r.d = d;\n"+
+"   r.mat = vec3(.02);\n"+
+"  }\n"+
+" return r;\n"+
+"}\n"+
+"MarchData legs(vec3 p)\n"+
+"{\n"+
+" MarchData r;\n"+
+" setBodyMaterial(r);\n"+
+" float silver;\n"+
+" float legAngle = legWalkAngle(1.);\n"+
+" p.z += .27;\n"+
+" p.yz *= rot(legAngle * sign(p.x));\n"+
+" p.z -= .27;\n"+
+" p.y += .65;\n"+
+" p.yz *= rot(- .2);\n"+
+" p.xy *= rot(legAngle * .3);\n"+
+" vec3 cp;\n"+
+" vec3 pp = p;\n"+
+" pp.x = abs(pp.x);\n"+
+" pp.y += .48;\n"+
+" pp.yz *= rot(- .58525);\n"+
+" pp.x -= .98;\n"+
+" cp = pp;\n"+
+" p = pp;\n"+
+" pp.xz = abs(pp.xz) - vec2(.12, .25);\n"+
+" p.y += .68;\n"+
+" p.xy = abs(p.xy) - .12;\n"+
+" silver = sdBox(p, vec3(.07, .05, 1.2));\n"+
+" cp -= vec3(0, - .7, 0);\n"+
+" r.d = sdBox(cp - vec3(0, 0, 1.15), vec3(.17, .17, .07)) - .04;\n"+
+" cp.z ++;\n"+
+" r.d = min(r.d, sdChamferedCube(cp.xzy, vec2(.28 - sign(abs(cp.z) - .3) * .01, .5).xyx, .18));\n"+
+" r.d = min(r.d, foot(cp));\n"+
+" if(silver < r.d)\n"+
+"  {\n"+
+"   r.d = silver;\n"+
+"   r.mat = vec3(.8);\n"+
+"  }\n"+
+" return r;\n"+
+"}\n"+
+"MarchData ed209(vec3 p)\n"+
+"{\n"+
+" p.yz += vec2(legWalkAngle(2.) * .2 + .1, - edZ());\n"+
+" MarchData r = legs(p);\n"+
+" float f = min(stretch * 2., 1.);\n"+
+" float slide = f < .5 ? smoothstep(0., .5, f) : (1. - smoothstep(.5, 1., f) * .2);\n"+
+" p.yz -= slide * .5;\n"+
+" gunsUp = smoothstep(0., 1., clamp((stretch - .66) * 6., 0., 1.));\n"+
+" gunsForward = smoothstep(0., 1., clamp((stretch - .83) * 6., 0., 1.)) + fireShock() * .5;\n"+
+" r = minResult(r, waist(p));\n"+
+" p.yz *= rot(.1 * (- edDown + legWalkAngle(2.) + smoothstep(0., 1., clamp((stretch - .5) * 6., 0., 1.)) - 1.));\n"+
+" p.xz *= rot(edTwist * .2);\n"+
+" return minResult(minResult(minResult(r, headLower(p)), headVisor(p, .8, 1.)), arms(p));\n"+
+"}\n"+
+"MarchData room(vec3 p)\n"+
+"{\n"+
+" const vec3 frameInner = vec3(2.8, 2.6, .1);\n"+
+" MarchData r;\n"+
+" r.mat = vec3(.4);\n"+
+" r.specPower = 1e7;\n"+
+" vec2 xy = p.xy - vec2(0, 2);\n"+
+" p.x = abs(p.x);\n"+
+" p.yz += vec2(.5, - 3.4);\n"+
+" float doorFrame;\n"+
+" float doorWidth;\n"+
+" float door;\n"+
+" float d;\n"+
+" float doorHole = sdBox(p, frameInner + vec3(0, 0, 1));\n"+
+" float backWall = length(p.z - 8.);\n"+
+" r.d = min(backWall, max(length(p.z), - doorHole + .1));\n"+
+" if(r.d == backWall)\n"+
+"  {\n"+
+"   float ocp = min(abs(sdOctogon(xy, 2.6)), abs(sdOctogon(xy, 1.9)));\n"+
+"   ocp = min(max(ocp, min(.7 - abs(xy.x + 1.2), - xy.y)), max(abs(sdOctogon(xy, 1.2)), min(xy.x, .7 - abs(xy.y))));\n"+
+"   if(ocp < .3)\n"+
+"    {\n"+
+"     r.mat = vec3(.39, .57, .71);\n"+
+"    }\n"+
+"  }\n"+
+" doorFrame = max(sdBox(p, frameInner + vec3(.4, .4, .1)), - doorHole);\n"+
+" doorWidth = frameInner.x * .5;\n"+
+" p.x -= frameInner.x;\n"+
+" p.xz *= rot(doorOpen * 2.1);\n"+
+" p.x += doorWidth;\n"+
+" door = sdBox(p, vec3(doorWidth, frameInner.yz));\n"+
+" p = abs(p) - vec3(doorWidth * .5, 1.1, .14);\n"+
+" d = min(doorFrame, max(door, - max(sdBox(p, vec3(.45, .9, .1)), - sdBox(p, vec3(.35, .8, 1)))));\n"+
+" if(d < r.d)\n"+
+"  {\n"+
+"   r.d = d;\n"+
+"   r.mat = vec3(.02, .02, .024);\n"+
+"   r.specPower = 10.;\n"+
+"  }\n"+
+" return r;\n"+
+"}\n"+
+"MarchData map(vec3 p)\n"+
+"{\n"+
+" MarchData r = minResult(room(p), ed209(p));\n"+
+" float gnd = length(p.y + 3.);\n"+
+" if(gnd < r.d)\n"+
+"  {\n"+
+"   r.d = gnd;\n"+
+"   r.mat = vec3(.1);\n"+
+"  }\n"+
+" return r;\n"+
+"}\n"+
+"float calcShadow(vec3 p, vec3 lightPos)\n"+
+"{\n"+
+" vec3 rd = normalize(lightPos - p);\n"+
+" float res = 1.;\n"+
+" float t = .1;\n"+
+" for(float i = 0.; i < 30.; i ++)\n"+
+"  {\n"+
+"   float h = map(p + rd * t).d;\n"+
+"   res = min(res, 12. * h / t);\n"+
+"   t += h;\n"+
+"   if(res < .001 || t > 25.)\n"+
+"    {\n"+
+"     break;\n"+
+"    }\n"+
+"  }\n"+
+" return clamp(res, 0., 1.);\n"+
+"}\n"+
+"vec3 calcNormal(vec3 p, float t)\n"+
+"{\n"+
+" float d = .01 * t * .33;\n"+
+" vec2 e = vec2(1, - 1) * .5773 * d;\n"+
+" return normalize(e.xyy * map(p + e.xyy).d + e.yyx * map(p + e.yyx).d + e.yxy * map(p + e.yxy).d + e.xxx * map(p + e.xxx).d);\n"+
+"}\n"+
+"float ao(vec3 p, vec3 n, float h)\n"+
+"{\n"+
+" return map(p + h * n).d / h;\n"+
+"}\n"+
+"vec3 vignette(vec3 col, vec2 fragCoord)\n"+
+"{\n"+
+" vec2 q = fragCoord.xy / iResolution.xy;\n"+
+" col *= .5 + .5 * pow(max(16. * q.x * q.y * (1. - q.x) * (1. - q.y), 1e-9), .4);\n"+
+" return col;\n"+
+"}\n"+
+"vec3 applyLighting(vec3 p, vec3 rd, float d, MarchData data)\n"+
+"{\n"+
+" vec3 sunDir = normalize(vec3(10, 10, - 10) - p);\n"+
+" vec3 n = calcNormal(p, d);\n"+
+" float primary = max(0., dot(sunDir, n));\n"+
+" float bounce = max(0., dot(- sunDir, n)) * .2;\n"+
+" float spe = pow(max(max(0., dot(rd, reflect(sunDir, n))), 1e-9), data.specPower) * 2.;\n"+
+" float fre = smoothstep(.7, 1., 1. + dot(rd, n));\n"+
+" float fog = exp(- length(p) * .05);\n"+
+" primary *= mix(.2, 1., calcShadow(p, vec3(10, 10, - 10)));\n"+
+" return mix(data.mat * ((primary + bounce) * ao(p, n, .33) + spe) * vec3(2, 1.6, 1.7), vec3(.01), fre) * fog;\n"+
+"}\n"+
+"vec3 getSceneColor(vec3 ro, vec3 rd)\n"+
+"{\n"+
+" vec3 p;\n"+
+" float g;\n"+
+" float d = .01;\n"+
+" MarchData h;\n"+
+" for(float steps = 0.; steps < 120.; steps ++)\n"+
+"  {\n"+
+"   p = ro + rd * d;\n"+
+"   h = map(p);\n"+
+"   if(abs(h.d) < .0015 * d)\n"+
+"    {\n"+
+"     break;\n"+
+"    }\n"+
+"   if(d > 64.)\n"+
+"    {\n"+
+"     return vec3(0);\n"+
+"    }\n"+
+"   d += h.d;\n"+
+"  }\n"+
+" g = glow;\n"+
+" return applyLighting(p, rd, d, h) + fireShock() * .3 + g;\n"+
+"}\n"+
+"void main()\n"+
+"{\n"+
+" edWalk = 1.;\n"+
+" edTwist = 0.;\n"+
+" edDown = 0.;\n"+
+" edShoot = 0.;\n"+
+" doorOpen = 1.;\n"+
+" stretch = 1.;\n"+
+" vec3 ro;\n"+
+" vec3 lookAt;\n"+
+" vec3 col;\n"+
+" float startScene;\n"+
+" float endScene;\n"+
+" float dim;\n"+
+" float time = mod(iTime + 4., 55.);\n"+
+" if(time < 12.)\n"+
+"  {\n"+
+"   startScene = 0.;\n"+
+"   endScene = 12.;\n"+
+"   edWalk = 0.;\n"+
+"   ro = vec3(0, - 1.5, - .625);\n"+
+"   lookAt = vec3(0, - 1, edZ());\n"+
+"   doorOpen = smoothstep(0., 1., time / 5.);\n"+
+"   stretch = remap(time, 7., 10., 0., 1.);\n"+
+"  }\n"+
+" else\n"+
+"  {\n"+
+"   if(time < 25.)\n"+
+"    {\n"+
+"     startScene = 12.;\n"+
+"     endScene = 25.;\n"+
+"     float t = time - startScene;\n"+
+"     edWalk = smoothstep(0., 1., remap(t, 3., 8., 0., 1.));\n"+
+"     ro = vec3(- .5 * cos(t * .7), .5 - t * .1, edZ() - 3.);\n"+
+"     lookAt = vec3(0, 0, edZ());\n"+
+"    }\n"+
+"   else\n"+
+"    {\n"+
+"     if(time < 29.)\n"+
+"      {\n"+
+"       startScene = 25.;\n"+
+"       endScene = 29.;\n"+
+"       ro = vec3(- 2, .5 + (time - startScene) * .1, edZ() - 3.);\n"+
+"       lookAt = vec3(0, 0, edZ());\n"+
+"      }\n"+
+"     else\n"+
+"      {\n"+
+"       if(time < 37.)\n"+
+"        {\n"+
+"         startScene = 29.;\n"+
+"         endScene = 37.;\n"+
+"         float t = time - startScene;\n"+
+"         ro = vec3(1.5, - 1. - t * .05, edZ() - 5.);\n"+
+"         lookAt = vec3(0, - 1, edZ());\n"+
+"         stretch = remap(t, 2., 5., 1., 0.);\n"+
+"        }\n"+
+"       else\n"+
+"        {\n"+
+"         if(time < 55.)\n"+
+"          {\n"+
+"           startScene = 37.;\n"+
+"           endScene = 55.;\n"+
+"           float t = time - startScene;\n"+
+"           ro = vec3(- 1.8, - .5, edZ() - 2.5);\n"+
+"           stretch = remap(t, 2., 3., 0., 1.) - remap(t, 11.5, 14.5, 0., 1.);\n"+
+"           lookAt = vec3(0, stretch * .5 - .5, edZ());\n"+
+"           edTwist = remap(t, 3., 3.2, 0., 1.) * stretch;\n"+
+"           edDown = remap(t, 3.2, 3.4, 0., 1.) * stretch;\n"+
+"           edShoot = t <= 9.5 ? remap(t, 4., 9.5, 0., 1.) : 0.;\n"+
+"          }\n"+
+"        }\n"+
+"      }\n"+
+"    }\n"+
+"  }\n"+
+" dim = 1. - cos(min(1., 2. * min(abs(time - startScene), abs(time - endScene))) * 1.5705);\n"+
+" col = vec3(0);\n"+
+" vec2 coord = gl_FragCoord.xy;\n"+
+" coord += (fract(fireShock() * vec2(23242.232, 978.23465)) - .5) * 10.;\n"+
+" vec2 uv = (coord - .5 * iResolution.xy) / iResolution.y;\n"+
+" col += getSceneColor(ro, getRayDir(ro, lookAt, uv));\n"+
+" fragColor = vec4(vignette(pow(max(col * dim, 1e-9), vec3(.4545)), gl_FragCoord.xy), 1);\n"+
+" fragColor.w = 1.0;\n"+
+"}\n"+
+"";
+
+var bug2_shader2 = "#version 300 es\n"+
+"precision highp float;\n"+
+"\n"+
+"layout(location = 0) out vec4 fragColor;\n"+
+"\n"+
+"uniform vec2 iResolution;\n"+
+"\n"+
+"uniform float iTime;\n"+
+"\n"+
+"uniform float iTimeDelta;\n"+
+"\n"+
+"uniform vec4 iMouse;\n"+
+"\n"+
+"uniform int iFrame;\n"+
+"\n"+
+"float sdDeathStar(vec3 p2, float ra, float rb, float d)\n"+
+"{\n"+
+" vec2 p = vec2(p2.x, length(p2.yz));\n"+
+" float a = (ra * ra - rb * rb + d * d) / (2.0 * d);\n"+
+" float b = sqrt(max(ra * ra - a * a, 0.0));\n"+
+" if(p.x * b - p.y * a > d * max(b - p.y, 0.0))\n"+
+"  {\n"+
+"   return length(p - vec2(a, b));\n"+
+"  }\n"+
+" else\n"+
+"  {\n"+
+"   return max((length(p) - ra), - (length(p - vec2(d, 0)) - rb));\n"+
+"  }\n"+
+"}\n"+
+"float map(vec3 pos)\n"+
+"{\n"+
+" float ra = 0.5;\n"+
+" float rb = 0.35 + 0.20 * cos(iTime * 1.1 + 4.0);\n"+
+" float di = 0.50 + 0.15 * cos(iTime * 1.7);\n"+
+" return sdDeathStar(pos, ra, rb, di);\n"+
+"}\n"+
+"float calcSoftshadow(vec3 ro, vec3 rd, float tmin, float tmax, const float k)\n"+
+"{\n"+
+" float res = 1.0;\n"+
+" float t = tmin;\n"+
+" for(int i = 0; i < 64; i ++)\n"+
+"  {\n"+
+"   float h = map(ro + rd * t);\n"+
+"   res = min(res, k * h / t);\n"+
+"   t += clamp(h, 0.003, 0.10);\n"+
+"   if(res < 0.002 || t > tmax)\n"+
+"    {\n"+
+"     break;\n"+
+"    }\n"+
+"  }\n"+
+" return clamp(res, 0.0, 1.0);\n"+
+"}\n"+
+"vec3 calcNormal(vec3 pos)\n"+
+"{\n"+
+" vec2 e = vec2(1.0, - 1.0) * 0.5773;\n"+
+" const float eps = 0.0005;\n"+
+" return normalize(e.xyy * map(pos + e.xyy * eps) + e.yyx * map(pos + e.yyx * eps) + e.yxy * map(pos + e.yxy * eps) + e.xxx * map(pos + e.xxx * eps));\n"+
+"}\n"+
+"void main()\n"+
+"{\n"+
+" float an = 1.0 * sin(0.38 * iTime + 3.0);\n"+
+" vec3 ro = vec3(1.0 * cos(an), - 0.1, 1.0 * sin(an));\n"+
+" vec3 ta = vec3(0.0, 0.0, 0.0);\n"+
+" vec3 ww = normalize(ta - ro);\n"+
+" vec3 uu = normalize(cross(ww, vec3(0.0, 1.0, 0.0)));\n"+
+" vec3 vv = normalize(cross(uu, ww));\n"+
+" vec3 tot = vec3(0.0);\n"+
+" for(int m = 0; m < 3; m ++)\n"+
+"  {\n"+
+"   for(int n = 0; n < 3; n ++)\n"+
+"    {\n"+
+"     vec2 o = vec2(float(m), float(n)) / float(3) - 0.5;\n"+
+"     vec2 p = (2.0 * (gl_FragCoord.xy + o) - iResolution.xy) / iResolution.y;\n"+
+"     vec3 rd = normalize(p.x * uu + p.y * vv + 1.5 * ww);\n"+
+"     const float tmax = 5.0;\n"+
+"     float t = 0.0;\n"+
+"     for(int i = 0; i < 256; i ++)\n"+
+"      {\n"+
+"       vec3 pos = ro + t * rd;\n"+
+"       float h = map(pos);\n"+
+"       if(h < 0.0001 || t > tmax)\n"+
+"        {\n"+
+"         break;\n"+
+"        }\n"+
+"       t += h;\n"+
+"      }\n"+
+"     vec3 col = vec3(0.0);\n"+
+"     if(t < tmax)\n"+
+"      {\n"+
+"       vec3 pos = ro + t * rd;\n"+
+"       vec3 nor = calcNormal(pos);\n"+
+"       vec3 lig = vec3(0.57703);\n"+
+"       float dif = clamp(dot(nor, lig), 0.0, 1.0);\n"+
+"       if(dif > 0.001)\n"+
+"        {\n"+
+"         dif *= calcSoftshadow(pos + nor * 0.001, lig, 0.001, 1.0, 32.0);\n"+
+"        }\n"+
+"       float amb = 0.5 + 0.5 * dot(nor, vec3(0.0, 1.0, 0.0));\n"+
+"       col = vec3(0.2, 0.3, 0.4) * amb + vec3(0.8, 0.7, 0.5) * dif;\n"+
+"      }\n"+
+"     col = sqrt(col);\n"+
+"     tot += col;\n"+
+"    }\n"+
+"  }\n"+
+" tot /= float(3 * 3);\n"+
+" fragColor = vec4(tot, 1.0);\n"+
+" fragColor.w = 1.0;\n"+
+"}\n"+
+"";
+
 var bug3Src = "#version 300 es\n"+
 "precision highp float;\n"+
 "\n"+
@@ -8331,6 +9212,328 @@ var bug3Src = "#version 300 es\n"+
 " fragColor.xyz = pow(fragColor.xyz, vec3(1.0 / 2.0));\n"+
 "}\n"+
 "";
+
+var bug3_shader1 = "#version 300 es\n"+
+"precision highp float;\n"+
+"\n"+
+"layout(location = 0) out vec4 fragColor;\n"+
+"\n"+
+"uniform vec2 iResolution;\n"+
+"\n"+
+"uniform float iTime;\n"+
+"\n"+
+"uniform float iTimeDelta;\n"+
+"\n"+
+"uniform vec4 iMouse;\n"+
+"\n"+
+"uniform int iFrame;\n"+
+"\n"+
+"mat2 Rot(float a)\n"+
+"{\n"+
+" float s = sin(a);\n"+
+" float c = cos(a);\n"+
+" return mat2(c, - s, s, c);\n"+
+"}\n"+
+"float Hash21(vec2 p)\n"+
+"{\n"+
+" p = fract(p * vec2(123.34, 456.21));\n"+
+" p += dot(p, p + 45.32);\n"+
+" return fract(p.x * p.y);\n"+
+"}\n"+
+"vec3 Hash21Color(vec2 p)\n"+
+"{\n"+
+" float r = Hash21(p);\n"+
+" float g = Hash21(p * 123.456);\n"+
+" float b = Hash21((p - 789.012) / 345.678);\n"+
+" return vec3(r, g, b);\n"+
+"}\n"+
+"float sdGrid(vec3 p)\n"+
+"{\n"+
+" float plane = p.y;\n"+
+" plane += 0.025 * smoothstep(0.05, 0.0, abs(p.x - round(p.x)));\n"+
+" plane += 0.025 * smoothstep(0.05, 0.0, abs(p.z - round(p.z)));\n"+
+" return plane;\n"+
+"}\n"+
+"float sdSpheres(vec3 p)\n"+
+"{\n"+
+" float off = Hash21(round(p.xz));\n"+
+" float sphereY = 0.2 * sin(iTime + 4. + off) + 1.0;\n"+
+" vec3 pos = vec3(0, sphereY, 0);\n"+
+" p.xz = mod(p.xz, 2.0) - 1.0;\n"+
+" return length(p - pos) - 0.4;\n"+
+"}\n"+
+"float GetDist(vec3 p)\n"+
+"{\n"+
+" float grid = sdGrid(p);\n"+
+" float spheres = sdSpheres(p);\n"+
+" return min(grid, spheres);\n"+
+"}\n"+
+"vec3 GetNormal(vec3 p)\n"+
+"{\n"+
+" float d = GetDist(p);\n"+
+" vec2 e = vec2(0.001, 0);\n"+
+" return normalize(d - vec3(GetDist(p - e.xyy), GetDist(p - e.yxy), GetDist(p - e.yyx)));\n"+
+"}\n"+
+"float GetLight(vec3 p, vec3 n)\n"+
+"{\n"+
+" vec3 l = normalize(vec3(10.0, 10.0, 10.0) * vec3(cos(iTime + 4.), 1., sin(iTime + 4.)) - p);\n"+
+" float diff = max(0.0, dot(n, l));\n"+
+" return diff;\n"+
+"}\n"+
+"float RayMarch(vec3 ro, vec3 rd, float side)\n"+
+"{\n"+
+" float dO = 0.0;\n"+
+" for(int i = 0; i < 1000; i ++)\n"+
+"  {\n"+
+"   vec3 p = ro + rd * dO;\n"+
+"   float dS = side * GetDist(p);\n"+
+"   if(abs(dS) <= 0.001 || dO > 1000.0)\n"+
+"    {\n"+
+"     break;\n"+
+"    }\n"+
+"   dO += dS;\n"+
+"  }\n"+
+" return dO;\n"+
+"}\n"+
+"vec3 offset(vec3 n)\n"+
+"{\n"+
+" return 0.001 * 2.0 * n;\n"+
+"}\n"+
+"void main()\n"+
+"{\n"+
+" vec2 uv = (gl_FragCoord.xy - iResolution.xy * 0.5) / min(iResolution.x, iResolution.y);\n"+
+" vec2 mouse;\n"+
+" if(iMouse.x == 0.0 && iMouse.y == 0.0)\n"+
+"  {\n"+
+"   mouse = vec2(0, 0);\n"+
+"  }\n"+
+" else\n"+
+"  {\n"+
+"   mouse = iMouse.xy / iResolution.xy - 0.5;\n"+
+"  }\n"+
+" float yaw = mouse.x * 2.0 * 3.1415926535;\n"+
+" float pitch = mouse.y * 3.1415926535;\n"+
+" vec4 cs = vec4(cos(yaw), sin(yaw), cos(pitch), sin(pitch));\n"+
+" vec3 ro = vec3(0, 1, 0);\n"+
+" vec3 lookAt = ro + cs.xwy * vec3(cs.z, 1, cs.z);\n"+
+" vec3 f = normalize(lookAt - ro);\n"+
+" vec3 r = normalize(cross(f, vec3(0, 1, 0)));\n"+
+" vec3 u = cross(r, f);\n"+
+" vec3 c = ro + f * 1.0;\n"+
+" vec3 i = c + uv.x * r + uv.y * u;\n"+
+" vec3 rd = normalize(i - ro);\n"+
+" vec3 col = vec3(0);\n"+
+" vec3 n = vec3(0);\n"+
+" vec3 reflOri = ro;\n"+
+" vec3 reflDir = rd;\n"+
+" for(int r_int = 0; r_int <= 10; r_int ++)\n"+
+"  {\n"+
+"   vec3 off = offset(n);\n"+
+"   reflOri += off;\n"+
+"   float d = RayMarch(reflOri, reflDir, 1.0);\n"+
+"   reflOri += reflDir * d;\n"+
+"   vec3 spec = vec3(0);\n"+
+"   if(sdGrid(reflOri) <= 0.001)\n"+
+"    {\n"+
+"     spec += mod(floor(reflOri.x) + floor(reflOri.z), 2.0);\n"+
+"    }\n"+
+"   else\n"+
+"    {\n"+
+"     if(sdSpheres(reflOri) <= 0.001)\n"+
+"      {\n"+
+"       spec += Hash21Color(round(reflOri.xz));\n"+
+"      }\n"+
+"     else\n"+
+"      {\n"+
+"       break;\n"+
+"      }\n"+
+"    }\n"+
+"   n = GetNormal(reflOri);\n"+
+"   float diff = GetLight(reflOri, n);\n"+
+"   spec += smoothstep(0.975, 1.0, diff);\n"+
+"   col += diff * spec * pow(max(0.4, 1e-9), float(r_int));\n"+
+"   reflDir = reflect(reflDir, n);\n"+
+"  }\n"+
+" fragColor = vec4(col, 1.0);\n"+
+" fragColor.w = 1.0;\n"+
+"}\n"+
+"";
+
+var bug3_shader2 = "#version 300 es\n"+
+"precision highp float;\n"+
+"\n"+
+"layout(location = 0) out vec4 fragColor;\n"+
+"\n"+
+"uniform vec2 iResolution;\n"+
+"\n"+
+"uniform float iTime;\n"+
+"\n"+
+"uniform float iTimeDelta;\n"+
+"\n"+
+"uniform vec4 iMouse;\n"+
+"\n"+
+"uniform int iFrame;\n"+
+"\n"+
+"float remap01(float a, float b, float t)\n"+
+"{\n"+
+" return clamp((t - a) / (b - a), 0., 1.);\n"+
+"}\n"+
+"float remap(float a, float b, float c, float d, float t)\n"+
+"{\n"+
+" return clamp((t - a) / (b - a), 0., 1.) * (d - c) + c;\n"+
+"}\n"+
+"vec2 within(vec2 uv, vec4 rect)\n"+
+"{\n"+
+" return (uv - rect.xy) / (rect.zw - rect.xy);\n"+
+"}\n"+
+"vec4 Brow(vec2 uv, float smile)\n"+
+"{\n"+
+" float offs = mix(.2, 0., smile);\n"+
+" uv.y += offs;\n"+
+" float y = uv.y;\n"+
+" uv.y += uv.x * mix(.5, .8, smile) - mix(.1, .3, smile);\n"+
+" uv.x -= mix(.0, .1, smile);\n"+
+" uv -= .5;\n"+
+" vec4 col = vec4(0.);\n"+
+" float blur = .1;\n"+
+" float d1 = length(uv);\n"+
+" float s1 = smoothstep(.45, .45 - blur, d1);\n"+
+" float d2 = length(uv - vec2(.1, - .2) * .7);\n"+
+" float s2 = smoothstep(.5, .5 - blur, d2);\n"+
+" float browMask = clamp(s1 - s2, 0., 1.);\n"+
+" float colMask = remap01(.7, .8, y) * .75;\n"+
+" colMask *= smoothstep(.6, .9, browMask);\n"+
+" colMask *= smile;\n"+
+" vec4 browCol = mix(vec4(.4, .2, .2, 1.), vec4(1., .75, .5, 1.), colMask);\n"+
+" uv.y += .15 - offs * .5;\n"+
+" blur += mix(.0, .1, smile);\n"+
+" d1 = length(uv);\n"+
+" s1 = smoothstep(.45, .45 - blur, d1);\n"+
+" d2 = length(uv - vec2(.1, - .2) * .7);\n"+
+" s2 = smoothstep(.5, .5 - blur, d2);\n"+
+" float shadowMask = clamp(s1 - s2, 0., 1.);\n"+
+" col = mix(col, vec4(0., 0., 0., 1.), smoothstep(.0, 1., shadowMask) * .5);\n"+
+" col = mix(col, browCol, smoothstep(.2, .4, browMask));\n"+
+" return col;\n"+
+"}\n"+
+"vec4 Eye(vec2 uv, float side, vec2 m, float smile)\n"+
+"{\n"+
+" uv -= .5;\n"+
+" uv.x *= side;\n"+
+" float d = length(uv);\n"+
+" vec4 irisCol = vec4(.3, .5, 1., 1.);\n"+
+" vec4 col = mix(vec4(1.), irisCol, smoothstep(.1, .7, d) * .5);\n"+
+" col.a = smoothstep(.5, .48, d);\n"+
+" col.rgb *= 1. - smoothstep(.45, .5, d) * .5 * clamp(- uv.y - uv.x * side, 0., 1.);\n"+
+" d = length(uv - m * .4);\n"+
+" col.rgb = mix(col.rgb, vec3(0.), smoothstep(.3, .28, d));\n"+
+" irisCol.rgb *= 1. + smoothstep(.3, .05, d);\n"+
+" float irisMask = smoothstep(.28, .25, d);\n"+
+" col.rgb = mix(col.rgb, irisCol.rgb, irisMask);\n"+
+" d = length(uv - m * .45);\n"+
+" float pupilSize = mix(.4, .16, smile);\n"+
+" float pupilMask = smoothstep(pupilSize, pupilSize * .85, d);\n"+
+" pupilMask *= irisMask;\n"+
+" col.rgb = mix(col.rgb, vec3(0.), pupilMask);\n"+
+" float t = iTime * 3.;\n"+
+" vec2 offs = vec2(sin(t + uv.y * 25.), sin(t + uv.x * 25.));\n"+
+" offs *= .01 * (1. - smile);\n"+
+" uv += offs;\n"+
+" float highlight = smoothstep(.1, .09, length(uv - vec2(- .15, .15)));\n"+
+" highlight += smoothstep(.07, .05, length(uv + vec2(- .08, .08)));\n"+
+" col.rgb = mix(col.rgb, vec3(1.), highlight);\n"+
+" return col;\n"+
+"}\n"+
+"vec4 Mouth(vec2 uv, float smile)\n"+
+"{\n"+
+" uv -= .5;\n"+
+" vec4 col = vec4(.5, .18, .05, 1.);\n"+
+" uv.y *= 1.5;\n"+
+" uv.y -= uv.x * uv.x * 2. * smile;\n"+
+" uv.x *= mix(2.5, 1., smile);\n"+
+" float d = length(uv);\n"+
+" col.a = smoothstep(.5, .48, d);\n"+
+" vec2 tUv = uv;\n"+
+" tUv.y += (abs(uv.x) * .5 + .1) * (1. - smile);\n"+
+" float td = length(tUv - vec2(0., .6));\n"+
+" vec3 toothCol = vec3(1.) * smoothstep(.6, .35, d);\n"+
+" col.rgb = mix(col.rgb, toothCol, smoothstep(.4, .37, td));\n"+
+" td = length(uv + vec2(0., .5));\n"+
+" col.rgb = mix(col.rgb, vec3(1., .5, .5), smoothstep(.5, .2, td));\n"+
+" return col;\n"+
+"}\n"+
+"vec4 Head(vec2 uv)\n"+
+"{\n"+
+" vec4 col = vec4(.9, .65, .1, 1.);\n"+
+" float d = length(uv);\n"+
+" col.a = smoothstep(.5, .49, d);\n"+
+" float edgeShade = remap01(.35, .5, d);\n"+
+" edgeShade *= edgeShade;\n"+
+" col.rgb *= 1. - edgeShade * .5;\n"+
+" col.rgb = mix(col.rgb, vec3(.6, .3, .1), smoothstep(.47, .48, d));\n"+
+" float highlight = smoothstep(.41, .405, d);\n"+
+" highlight *= remap(.41, - .1, .75, 0., uv.y);\n"+
+" highlight *= smoothstep(.18, .19, length(uv - vec2(.21, .08)));\n"+
+" col.rgb = mix(col.rgb, vec3(1.), highlight);\n"+
+" d = length(uv - vec2(.25, - .2));\n"+
+" float cheek = smoothstep(.2, .01, d) * .4;\n"+
+" cheek *= smoothstep(.17, .16, d);\n"+
+" col.rgb = mix(col.rgb, vec3(1., .1, .1), cheek);\n"+
+" return col;\n"+
+"}\n"+
+"vec4 Smiley(vec2 uv, vec2 m, float smile)\n"+
+"{\n"+
+" vec4 col = vec4(0.);\n"+
+" if(length(uv) < .5)\n"+
+"  {\n"+
+"   float side = sign(uv.x);\n"+
+"   uv.x = abs(uv.x);\n"+
+"   vec4 head = Head(uv);\n"+
+"   col = mix(col, head, head.a);\n"+
+"   if(length(uv - vec2(.2, .075)) < .175)\n"+
+"    {\n"+
+"     vec4 eye = Eye(within(uv, vec4(.03, - .1, .37, .25)), side, m, smile);\n"+
+"     col = mix(col, eye, eye.a);\n"+
+"    }\n"+
+"   if(length(uv - vec2(.0, - .15)) < .3)\n"+
+"    {\n"+
+"     vec4 mouth = Mouth(within(uv, vec4(- .3, - .43, .3, - .13)), smile);\n"+
+"     col = mix(col, mouth, mouth.a);\n"+
+"    }\n"+
+"   if(length(uv - vec2(.185, .325)) < .18)\n"+
+"    {\n"+
+"     vec4 brow = Brow(within(uv, vec4(.03, .2, .4, .45)), smile);\n"+
+"     col = mix(col, brow, brow.a);\n"+
+"    }\n"+
+"  }\n"+
+" return col;\n"+
+"}\n"+
+"void main()\n"+
+"{\n"+
+" float t = iTime;\n"+
+" vec2 uv = gl_FragCoord.xy / iResolution.xy;\n"+
+" uv -= .5;\n"+
+" uv.x *= iResolution.x / iResolution.y;\n"+
+" vec2 m = iMouse.xy / iResolution.xy;\n"+
+" m -= .5;\n"+
+" if(m.x < - .49 && m.y < - .49)\n"+
+"  {\n"+
+"   float s = sin(t * .5);\n"+
+"   float c = cos(t * .38);\n"+
+"   m = vec2(s, c) * .4;\n"+
+"  }\n"+
+" if(length(m) > .707)\n"+
+"  {\n"+
+"   m *= 0.;\n"+
+"  }\n"+
+" float d = dot(uv, uv);\n"+
+" uv -= m * clamp(.23 - d, 0., 1.);\n"+
+" float smile = sin(t * .5) * .5 + .5;\n"+
+" fragColor = Smiley(uv, m, smile);\n"+
+" fragColor.w = 1.0;\n"+
+"}\n"+
+"";
+
 var bug4Src = "#version 300 es\n"+
 "precision highp float;\n"+
 "\n"+
@@ -11130,6 +12333,474 @@ var bug4Src = "#version 300 es\n"+
 " fragColor = mix(fragColor_2, fragColor_1, 1.0 - fragColor_2.a + iTime);\n"+
 "}\n"+
 "";
+
+var bug4_shader1 = "#version 300 es\n"+
+"precision highp float;\n"+
+"\n"+
+"layout(location = 0) out vec4 fragColor;\n"+
+"\n"+
+"uniform vec2 iResolution;\n"+
+"\n"+
+"uniform float iTime;\n"+
+"\n"+
+"uniform float iTimeDelta;\n"+
+"\n"+
+"uniform vec4 iMouse;\n"+
+"\n"+
+"uniform int iFrame;\n"+
+"\n"+
+"vec2 grad(ivec2 z)\n"+
+"{\n"+
+" int n = z.x * 1 + z.y * 113;\n"+
+" n = (n << 13) ^ n;\n"+
+" n = (n * (n * n * 15731 + 789221) + 1376312589) >> 16;\n"+
+" n &= 7;\n"+
+" vec2 gr = vec2(n & 1, n >> 1) * 2.0 - 1.0;\n"+
+" return (n >= 6) ? vec2(0.0, gr.x) : (n >= 4) ? vec2(gr.x, 0.0) : gr;\n"+
+"}\n"+
+"float noise(vec2 p)\n"+
+"{\n"+
+" ivec2 i = ivec2(floor(p));\n"+
+" vec2 f = fract(p);\n"+
+" vec2 u = f * f * (3.0 - 2.0 * f);\n"+
+" return mix(mix(dot(grad(i + ivec2(0, 0)), f - vec2(0.0, 0.0)), dot(grad(i + ivec2(1, 0)), f - vec2(1.0, 0.0)), u.x), mix(dot(grad(i + ivec2(0, 1)), f - vec2(0.0, 1.0)), dot(grad(i + ivec2(1, 1)), f - vec2(1.0, 1.0)), u.x), u.y);\n"+
+"}\n"+
+"float fbm(vec2 p)\n"+
+"{\n"+
+" const mat2 m = mat2(1.6, 1.2, - 1.2, 1.6);\n"+
+" float f = 0.0;\n"+
+" float s = 0.5;\n"+
+" for(int i = 0; i < 6; i ++)\n"+
+"  {\n"+
+"   f += s * noise(p);\n"+
+"   p = m * p;\n"+
+"   s = 0.5 * s;\n"+
+"  }\n"+
+" return f;\n"+
+"}\n"+
+"float sdLine(vec2 p, vec2 a, vec2 b)\n"+
+"{\n"+
+" vec2 pa = p - a;\n"+
+" vec2 ba = b - a;\n"+
+" float h = clamp(dot(pa, ba) / dot(ba, ba), 0.0, 1.0);\n"+
+" return length(pa - h * ba);\n"+
+"}\n"+
+"vec2 altitude(vec2 c, vec2 a, vec2 b)\n"+
+"{\n"+
+" vec2 w = b - a;\n"+
+" return a + w * dot(c - a, w) / dot(w, w);\n"+
+"}\n"+
+"float cro(vec2 a, vec2 b)\n"+
+"{\n"+
+" return a.x * b.y - a.y * b.x;\n"+
+"}\n"+
+"vec2 intersect(vec2 a1, vec2 b1, vec2 a2, vec2 b2)\n"+
+"{\n"+
+" float h = cro(a1 - a2, b1 - a1) / cro(b2 - a2, b1 - a1);\n"+
+" return a2 + (b2 - a2) * h;\n"+
+"}\n"+
+"vec3 blackboard(vec2 fragCoord)\n"+
+"{\n"+
+" vec2 p = (2.0 * fragCoord - iResolution.xy) / iResolution.y;\n"+
+" vec2 q = fragCoord / iResolution.xy;\n"+
+" float v = sqrt(16.0 * q.x * q.y * (1.0 - q.x) * (1.0 - q.y));\n"+
+" vec3 col = vec3(0.1 + 0.05 * v);\n"+
+" col += 0.05 * fbm(p * 1.25 * vec2(1.0, 4.0));\n"+
+" col += 0.02 * fbm(p * 20.0);\n"+
+" vec2 ce_flattened_block_1 = vec2(2.0, - 10.0);\n"+
+" vec2 w_flattened_block_1 = 2.5 * p - ce_flattened_block_1;\n"+
+" w_flattened_block_1 = vec2(atan(w_flattened_block_1.y, w_flattened_block_1.x), length(w_flattened_block_1));\n"+
+" float ff_flattened_block_1 = fbm(w_flattened_block_1 * 2.0 * vec2(1.0, 1.0));\n"+
+" float fa_flattened_block_1 = smoothstep(1.5, 1.0, abs(w_flattened_block_1.y + ce_flattened_block_1.y - 0.7));\n"+
+" fa_flattened_block_1 *= smoothstep(0.4, 0.2, abs(w_flattened_block_1.x - 1.8 + 0.5 * ff_flattened_block_1));\n"+
+" col += v * 0.06 * smoothstep(- 0.5, 0.5, ff_flattened_block_1) * fa_flattened_block_1;\n"+
+" float m = 0.0;\n"+
+" float m2 = 0.0;\n"+
+" for(int i = 0; i < 20; i ++)\n"+
+"  {\n"+
+"   vec2 p1 = vec2(3.0, 2.0) * sin(float(i) * 1.3 + vec2(0, 1));\n"+
+"   vec2 p2 = p1 + vec2(0.5, 2.0) * sin(float(i) * 11.1 + vec2(2, 4));\n"+
+"   float d = sdLine(2.5 * p + 0.5 * sin(2.5 * p + float(i) * vec2(1.7, 2.3)), p1, p2);\n"+
+"   d += 0.1 * fbm(1.25 * p);\n"+
+"   float ww = fbm(1.75 * p);\n"+
+"   m = max(m, smoothstep(0.05, 0.0, d));\n"+
+"   m2 = max(m2, smoothstep(0.2, - 0.2, d - abs(ww)));\n"+
+"  }\n"+
+" col += v * 0.01 * m;\n"+
+" col += v * 0.025 * m2;\n"+
+" col += col.x * col.x * 0.75 * smoothstep(- 0.2, 0.2, fbm(p * 82.0));\n"+
+" return col;\n"+
+"}\n"+
+"vec3 chalk(vec3 col, vec2 fragCoord)\n"+
+"{\n"+
+" vec2 p1 = vec2(2.25 + 0.70 * sin(1.3 * iTime), 0.0);\n"+
+" p1.y = 1.0 / p1.x;\n"+
+" vec2 p2 = vec2(- 1.4 + 0.40 * sin(1.1 * iTime), 0.0);\n"+
+" p2.y = 1.0 / p2.x;\n"+
+" vec2 p3 = vec2(0.35 + 0.02 * sin(1.9 * iTime), 0.0);\n"+
+" p3.y = 1.0 / p3.x;\n"+
+" vec2 p = (2.0 * fragCoord - iResolution.xy) / iResolution.y;\n"+
+" p *= 3.0;\n"+
+" p -= vec2(- 0.3, - 0.7);\n"+
+" float gf = 0.6;\n"+
+" gf *= 0.9 + 0.2 * smoothstep(- 0.2, 0.2, fbm(p.yx * 10.0));\n"+
+" float d = 0.0;\n"+
+" if(abs(p.x) > 0.1)\n"+
+"  {\n"+
+"   float x = p.x;\n"+
+"   float y = 1.0 / x;\n"+
+"   float dy = - 1.0 / (x * x);\n"+
+"   d = abs(p.y - y) / sqrt(1.0 + dy * dy);\n"+
+"   d += 0.03 * fbm(p * 2.5);\n"+
+"   col = mix(col, 1.2 * 1.3 * vec3(160, 140, 80) / 255.0, gf * (1.0 - smoothstep(0.01, 0.03, d)));\n"+
+"  }\n"+
+" d = sdLine(p, vec2(0.0, - 10.0), vec2(0.0, 3.4));\n"+
+" d = min(d, sdLine(p, vec2(- 10.0, 0.0), vec2(5.2, 0.0)));\n"+
+" d = min(d, sdLine(vec2(abs(p.x), p.y), vec2(0.07, 3.2), vec2(0.0, 3.4)));\n"+
+" d = min(d, sdLine(vec2(p.x, abs(p.y)), vec2(5.0, 0.07), vec2(5.2, 0.0)));\n"+
+" d += 0.02 * fbm(p * 2.5);\n"+
+" col = mix(col, 1.2 * 1.1 * vec3(120, 90, 64) / 255.0, gf * (1.0 - smoothstep(0.01, 0.03, d)));\n"+
+" d = sdLine(p, p1, p2);\n"+
+" d = min(d, sdLine(p, p2, p3));\n"+
+" d = min(d, sdLine(p, p3, p1));\n"+
+" d += 0.03 * fbm(p * 2.5);\n"+
+" col = mix(col, 1.2 * 1.4 * vec3(110, 150, 65) / 255.0, gf * (1.0 - smoothstep(0.01, 0.03, d)));\n"+
+" vec2 q1 = altitude(p1, p2, p3);\n"+
+" vec2 q2 = altitude(p2, p3, p1);\n"+
+" vec2 q3 = altitude(p3, p1, p2);\n"+
+" d = sdLine(p, p1, q1);\n"+
+" d = min(d, sdLine(p, p2, q2));\n"+
+" d = min(d, sdLine(p, p3, q3));\n"+
+" vec2 o1 = normalize(p1 - q1) * 0.18;\n"+
+" vec2 o2 = normalize(p2 - q2) * 0.18;\n"+
+" vec2 o3 = normalize(p3 - q3) * 0.18;\n"+
+" d = min(d, sdLine(p, q1 + vec2(o1.x + o1.y, o1.y - o1.x), q1 + vec2(o1.x, o1.y)));\n"+
+" d = min(d, sdLine(p, q1 + vec2(o1.x + o1.y, o1.y - o1.x), q1 + vec2(o1.y, - o1.x)));\n"+
+" d = min(d, sdLine(p, q2 + vec2(o2.x + o2.y, o2.y - o2.x), q2 + vec2(o2.x, o2.y)));\n"+
+" d = min(d, sdLine(p, q2 + vec2(o2.x + o2.y, o2.y - o2.x), q2 + vec2(o2.y, - o2.x)));\n"+
+" d = min(d, sdLine(p, q3 + vec2(o3.x + o3.y, o3.y - o3.x), q3 + vec2(o3.x, o3.y)));\n"+
+" d = min(d, sdLine(p, q3 + vec2(o3.x + o3.y, o3.y - o3.x), q3 + vec2(o3.y, - o3.x)));\n"+
+" d += 0.03 * fbm(p * 2.5);\n"+
+" col = mix(col, 1.2 * 1.25 * vec3(70, 100, 70) / 255.0, gf * (1.0 - smoothstep(0.01, 0.03, d)));\n"+
+" vec2 pc = intersect(p1, q1, p2, q2);\n"+
+" d = length(p - pc) - 0.08;\n"+
+" d += 0.05 * fbm((p - pc) * 8.0);\n"+
+" col = mix(col, 1.1 * vec3(140, 200, 60) / 255.0, (1.0 - smoothstep(0.01, 0.03, d)));\n"+
+" d = min(min(length(p - p1), length(p - p2)), length(p - p3)) - 0.06;\n"+
+" d += 0.07 * fbm(p * 4.0);\n"+
+" col = mix(col, 1.1 * vec3(255, 240, 8) / 255.0, (1.0 - smoothstep(0.01, 0.03, d)));\n"+
+" return col;\n"+
+"}\n"+
+"void main()\n"+
+"{\n"+
+" vec3 col = blackboard(gl_FragCoord.xy);\n"+
+" col = chalk(col, gl_FragCoord.xy);\n"+
+" fragColor = vec4(col, 1.0);\n"+
+" fragColor.w = 1.0;\n"+
+"}\n"+
+"";
+
+var bug4_shader2 = "#version 300 es\n"+
+"precision highp float;\n"+
+"\n"+
+"layout(location = 0) out vec4 fragColor;\n"+
+"\n"+
+"uniform vec2 iResolution;\n"+
+"\n"+
+"uniform float iTime;\n"+
+"\n"+
+"uniform float iTimeDelta;\n"+
+"\n"+
+"uniform vec4 iMouse;\n"+
+"\n"+
+"uniform int iFrame;\n"+
+"\n"+
+"const int NUM_STEPS = 32;\n"+
+"\n"+
+"const int AO_SAMPLES = 4;\n"+
+"\n"+
+"const vec2 AO_PARAM = vec2(1.2, 3.5);\n"+
+"\n"+
+"const vec2 CORNER_PARAM = vec2(0.25, 40.0);\n"+
+"\n"+
+"const float INV_AO_SAMPLES = 1.0 / float(AO_SAMPLES);\n"+
+"\n"+
+"const float TRESHOLD = 0.1;\n"+
+"\n"+
+"const float EPSILON = 1e-3;\n"+
+"\n"+
+"const float LIGHT_INTENSITY = 0.25;\n"+
+"\n"+
+"const vec3 RED = vec3(1.0, 0.7, 0.7) * LIGHT_INTENSITY;\n"+
+"\n"+
+"const vec3 ORANGE = vec3(1.0, 0.67, 0.43) * LIGHT_INTENSITY;\n"+
+"\n"+
+"const vec3 BLUE = vec3(0.54, 0.77, 1.0) * LIGHT_INTENSITY;\n"+
+"\n"+
+"const vec3 WHITE = vec3(1.2, 1.07, 0.98) * LIGHT_INTENSITY;\n"+
+"\n"+
+"const float DISPLACEMENT = 0.1;\n"+
+"\n"+
+"mat3 fromEuler(vec3 ang)\n"+
+"{\n"+
+" vec2 a1 = vec2(sin(ang.x), cos(ang.x));\n"+
+" vec2 a2 = vec2(sin(ang.y), cos(ang.y));\n"+
+" vec2 a3 = vec2(sin(ang.z), cos(ang.z));\n"+
+" mat3 m;\n"+
+" m[0] = vec3(a1.y * a3.y + a1.x * a2.x * a3.x, a1.y * a2.x * a3.x + a3.y * a1.x, - a2.y * a3.x);\n"+
+" m[1] = vec3(- a2.y * a1.x, a1.y * a2.y, a2.x);\n"+
+" m[2] = vec3(a3.y * a1.x * a2.x + a1.y * a3.x, a1.x * a3.x - a1.y * a3.y * a2.x, a2.y * a3.y);\n"+
+" return m;\n"+
+"}\n"+
+"vec3 saturation(vec3 c, float t)\n"+
+"{\n"+
+" return mix(vec3(dot(c, vec3(0.2126, 0.7152, 0.0722))), c, t);\n"+
+"}\n"+
+"float hash11(float p)\n"+
+"{\n"+
+" return fract(sin(p * 727.1) * 435.545);\n"+
+"}\n"+
+"float hash12(vec2 p)\n"+
+"{\n"+
+" float h = dot(p, vec2(127.1, 311.7));\n"+
+" return fract(sin(h) * 437.545);\n"+
+"}\n"+
+"vec3 hash31(float p)\n"+
+"{\n"+
+" vec3 h = vec3(127.231, 491.7, 718.423) * p;\n"+
+" return fract(sin(h) * 435.543);\n"+
+"}\n"+
+"float noise_3(vec3 p)\n"+
+"{\n"+
+" vec3 i = floor(p);\n"+
+" vec3 f = fract(p);\n"+
+" vec3 u = f * f * (3.0 - 2.0 * f);\n"+
+" vec2 ii = i.xy + i.z * vec2(5.0);\n"+
+" float a = hash12(ii + vec2(0.0, 0.0));\n"+
+" float b = hash12(ii + vec2(1.0, 0.0));\n"+
+" float c = hash12(ii + vec2(0.0, 1.0));\n"+
+" float d = hash12(ii + vec2(1.0, 1.0));\n"+
+" float v1 = mix(mix(a, b, u.x), mix(c, d, u.x), u.y);\n"+
+" ii += vec2(5.0);\n"+
+" a = hash12(ii + vec2(0.0, 0.0));\n"+
+" b = hash12(ii + vec2(1.0, 0.0));\n"+
+" c = hash12(ii + vec2(0.0, 1.0));\n"+
+" d = hash12(ii + vec2(1.0, 1.0));\n"+
+" float v2 = mix(mix(a, b, u.x), mix(c, d, u.x), u.y);\n"+
+" return max(mix(v1, v2, u.z), 0.0);\n"+
+"}\n"+
+"float fbm3(vec3 p, float a, float f)\n"+
+"{\n"+
+" return noise_3(p);\n"+
+"}\n"+
+"float fbm3_high(vec3 p, float a, float f)\n"+
+"{\n"+
+" float ret = 0.0;\n"+
+" float amp = 1.0;\n"+
+" float frq = 1.0;\n"+
+" for(int i = 0; i < 5; i ++)\n"+
+"  {\n"+
+"   float n = pow(max(noise_3(p * frq), 1e-9), 2.0);\n"+
+"   ret += n * amp;\n"+
+"   frq *= f;\n"+
+"   amp *= a * (pow(max(n, 1e-9), 0.2));\n"+
+"  }\n"+
+" return ret;\n"+
+"}\n"+
+"float diffuse(vec3 n, vec3 l, float p)\n"+
+"{\n"+
+" return pow(max(max(dot(n, l), 0.0), 1e-9), p);\n"+
+"}\n"+
+"float specular(vec3 n, vec3 l, vec3 e, float s)\n"+
+"{\n"+
+" float nrm = (s + 8.0) / (3.1415 * 8.0);\n"+
+" return pow(max(max(dot(reflect(e, n), l), 0.0), 1e-9), s) * nrm;\n"+
+"}\n"+
+"float plane(vec3 gp, vec4 p)\n"+
+"{\n"+
+" return dot(p.xyz, gp + p.xyz * p.w);\n"+
+"}\n"+
+"float sphere(vec3 p, float r)\n"+
+"{\n"+
+" return length(p) - r;\n"+
+"}\n"+
+"float capsule(vec3 p, float r, float h)\n"+
+"{\n"+
+" p.y -= clamp(p.y, - h, h);\n"+
+" return length(p) - r;\n"+
+"}\n"+
+"float cylinder(vec3 p, float r, float h)\n"+
+"{\n"+
+" return max(abs(p.y / h), capsule(p, r, h));\n"+
+"}\n"+
+"float box(vec3 p, vec3 s)\n"+
+"{\n"+
+" p = abs(p) - s;\n"+
+" return max(max(p.x, p.y), p.z);\n"+
+"}\n"+
+"float rbox(vec3 p, vec3 s)\n"+
+"{\n"+
+" p = abs(p) - s;\n"+
+" return length(p - min(p, 0.0));\n"+
+"}\n"+
+"float quad(vec3 p, vec2 s)\n"+
+"{\n"+
+" p = abs(p) - vec3(s.x, 0.0, s.y);\n"+
+" return max(max(p.x, p.y), p.z);\n"+
+"}\n"+
+"float boolUnion(float a, float b)\n"+
+"{\n"+
+" return min(a, b);\n"+
+"}\n"+
+"float boolIntersect(float a, float b)\n"+
+"{\n"+
+" return max(a, b);\n"+
+"}\n"+
+"float boolSub(float a, float b)\n"+
+"{\n"+
+" return max(a, - b);\n"+
+"}\n"+
+"float boolSmoothIntersect(float a, float b, float k)\n"+
+"{\n"+
+" float h = clamp(0.5 + 0.5 * (b - a) / k, 0.0, 1.0);\n"+
+" return mix(a, b, h) + k * h * (1.0 - h);\n"+
+"}\n"+
+"float boolSmoothSub(float a, float b, float k)\n"+
+"{\n"+
+" return boolSmoothIntersect(a, - b, k);\n"+
+"}\n"+
+"float rock(vec3 p)\n"+
+"{\n"+
+" float d = sphere(p, 1.0);\n"+
+" for(int i = 0; i < 9; i ++)\n"+
+"  {\n"+
+"   float ii = float(i);\n"+
+"   float r = 2.5 + hash11(ii);\n"+
+"   vec3 v = normalize(hash31(ii) * 2.0 - 1.0);\n"+
+"   d = boolSmoothSub(d, sphere(p + v * r, r * 0.8), 0.03);\n"+
+"  }\n"+
+" return d;\n"+
+"}\n"+
+"float map(vec3 p)\n"+
+"{\n"+
+" float d = rock(p) + fbm3(p * 4.0, 0.4, 2.96) * DISPLACEMENT;\n"+
+" d = boolUnion(d, plane(p, vec4(0.0, 1.0, 0.0, 1.0)));\n"+
+" return d;\n"+
+"}\n"+
+"float map_detailed(vec3 p)\n"+
+"{\n"+
+" float d = rock(p) + fbm3_high(p * 4.0, 0.4, 2.96) * DISPLACEMENT;\n"+
+" d = boolUnion(d, plane(p, vec4(0.0, 1.0, 0.0, 1.0)));\n"+
+" return d;\n"+
+"}\n"+
+"vec3 getNormal(vec3 p, float dens)\n"+
+"{\n"+
+" vec3 n;\n"+
+" n.x = map_detailed(vec3(p.x + EPSILON, p.y, p.z));\n"+
+" n.y = map_detailed(vec3(p.x, p.y + EPSILON, p.z));\n"+
+" n.z = map_detailed(vec3(p.x, p.y, p.z + EPSILON));\n"+
+" return normalize(n - map_detailed(p));\n"+
+"}\n"+
+"vec2 getOcclusion(vec3 p, vec3 n)\n"+
+"{\n"+
+" vec2 r = vec2(0.0);\n"+
+" for(int i = 0; i < AO_SAMPLES; i ++)\n"+
+"  {\n"+
+"   float f = float(i) * INV_AO_SAMPLES;\n"+
+"   float hao = 0.01 + f * AO_PARAM.x;\n"+
+"   float hc = 0.01 + f * CORNER_PARAM.x;\n"+
+"   float dao = map(p + n * hao) - TRESHOLD;\n"+
+"   float dc = map(p - n * hc) - TRESHOLD;\n"+
+"   r.x += clamp(hao - dao, 0.0, 1.0) * (1.0 - f);\n"+
+"   r.y += clamp(hc + dc, 0.0, 1.0) * (1.0 - f);\n"+
+"  }\n"+
+" r.x = clamp(1.0 - r.x * INV_AO_SAMPLES * AO_PARAM.y, 0.0, 1.0);\n"+
+" r.y = clamp(r.y * INV_AO_SAMPLES * CORNER_PARAM.y, 0.0, 1.0);\n"+
+" return r;\n"+
+"}\n"+
+"vec2 spheretracing(vec3 ori, vec3 dir, out vec3 p)\n"+
+"{\n"+
+" vec2 td = vec2(0.0);\n"+
+" for(int i = 0; i < NUM_STEPS; i ++)\n"+
+"  {\n"+
+"   p = ori + dir * td.x;\n"+
+"   td.y = map(p);\n"+
+"   if(td.y < TRESHOLD)\n"+
+"    {\n"+
+"     break;\n"+
+"    }\n"+
+"   td.x += (td.y - TRESHOLD) * 0.9;\n"+
+"  }\n"+
+" return td;\n"+
+"}\n"+
+"vec3 getStoneColor(vec3 p, float c, vec3 l, vec3 n, vec3 e)\n"+
+"{\n"+
+" c = min(c + pow(max(noise_3(vec3(p.x * 20.0, 0.0, p.z * 20.0)), 1e-9), 70.0) * 8.0, 1.0);\n"+
+" float ic = pow(max(1.0 - c, 1e-9), 0.5);\n"+
+" vec3 base = vec3(0.42, 0.3, 0.2) * 0.35;\n"+
+" vec3 sand = vec3(0.51, 0.41, 0.32) * 0.9;\n"+
+" vec3 color = mix(base, sand, c);\n"+
+" float f = pow(max(1.0 - max(dot(n, - e), 0.0), 1e-9), 5.0) * 0.75 * ic;\n"+
+" color += vec3(diffuse(n, l, 0.5) * WHITE);\n"+
+" color += vec3(specular(n, l, e, 8.0) * WHITE * 1.5 * ic);\n"+
+" n = normalize(n - normalize(p) * 0.4);\n"+
+" color += vec3(specular(n, l, e, 80.0) * WHITE * 1.5 * ic);\n"+
+" color = mix(color, vec3(1.0), f);\n"+
+" color *= sqrt(abs(p.y * 0.5 + 0.5)) * 0.4 + 0.6;\n"+
+" color *= (n.y * 0.5 + 0.5) * 0.4 + 0.6;\n"+
+" return color;\n"+
+"}\n"+
+"vec3 getPixel(vec2 coord, float time)\n"+
+"{\n"+
+" vec2 iuv = coord / iResolution.xy * 2.0 - 1.0;\n"+
+" vec2 uv = iuv;\n"+
+" uv.x *= iResolution.x / iResolution.y;\n"+
+" vec3 ang = vec3(0.0, 0.2, time);\n"+
+" if(iMouse.z > 0.0)\n"+
+"  {\n"+
+"   ang = vec3(0.0, clamp(2.0 - iMouse.y * 0.01, 0.0, 3.1415), iMouse.x * 0.01);\n"+
+"  }\n"+
+" mat3 rot = fromEuler(ang);\n"+
+" vec3 ori = vec3(0.0, 0.0, 2.8);\n"+
+" vec3 dir = normalize(vec3(uv.xy, - 2.0));\n"+
+" ori = ori * rot;\n"+
+" dir = dir * rot;\n"+
+" vec3 p;\n"+
+" vec2 td = spheretracing(ori, dir, p);\n"+
+" vec3 n = getNormal(p, td.y);\n"+
+" vec2 occ = getOcclusion(p, n);\n"+
+" vec3 light = normalize(vec3(0.0, 1.0, 0.0));\n"+
+" vec3 color = vec3(1.0);\n"+
+" if(td.x < 3.5 && p.y > - 0.89)\n"+
+"  {\n"+
+"   color = getStoneColor(p, occ.y, light, n, dir);\n"+
+"  }\n"+
+" color *= occ.x;\n"+
+" return color;\n"+
+"}\n"+
+"void main()\n"+
+"{\n"+
+" float time = iTime * 0.3;\n"+
+" vec3 color = vec3(0.0);\n"+
+" for(int i = - 1; i <= 1; i ++)\n"+
+"  {\n"+
+"   for(int j = - 1; j <= 1; j ++)\n"+
+"    {\n"+
+"     vec2 uv = gl_FragCoord.xy + vec2(i, j) / 3.0;\n"+
+"     color += getPixel(uv, time);\n"+
+"    }\n"+
+"  }\n"+
+" color /= 9.0;\n"+
+" color = sqrt(color);\n"+
+" color = saturation(color, 1.7);\n"+
+" vec2 iuv = gl_FragCoord.xy / iResolution.xy * 2.0 - 1.0;\n"+
+" float vgn = smoothstep(1.2, 0.7, abs(iuv.y)) * smoothstep(1.1, 0.8, abs(iuv.x));\n"+
+" color *= 1.0 - (1.0 - vgn) * 0.15;\n"+
+" fragColor = vec4(color, 1.0);\n"+
+" fragColor.w = 1.0;\n"+
+"}\n"+
+"";
+
 var bug5Src = "#version 300 es\n"+
 "precision highp float;\n"+
 "\n"+
@@ -11748,6 +13419,320 @@ var bug5Src = "#version 300 es\n"+
 " fragColor /= vec4(2.0 * 255.0);\n"+
 "}\n"+
 "";
+
+var bug5_shader1 = "#version 300 es\n"+
+"precision highp float;\n"+
+"\n"+
+"layout(location = 0) out vec4 fragColor;\n"+
+"\n"+
+"uniform vec2 iResolution;\n"+
+"\n"+
+"uniform float iTime;\n"+
+"\n"+
+"uniform float iTimeDelta;\n"+
+"\n"+
+"uniform vec4 iMouse;\n"+
+"\n"+
+"uniform int iFrame;\n"+
+"\n"+
+"float hash(vec2 p)\n"+
+"{\n"+
+" float h = dot(p, vec2(127.1, 311.7));\n"+
+" return fract(sin(h) * 458.325421) * 2.0 - 1.0;\n"+
+"}\n"+
+"float noise(vec2 p)\n"+
+"{\n"+
+" vec2 i = floor(p);\n"+
+" vec2 f = fract(p);\n"+
+" f = f * f * (3.0 - 2.0 * f);\n"+
+" return mix(mix(hash(i + vec2(0.0, 0.0)), hash(i + vec2(1.0, 0.0)), f.x), mix(hash(i + vec2(0.0, 1.0)), hash(i + vec2(1.0, 1.0)), f.x), f.y);\n"+
+"}\n"+
+"vec2 rot(vec2 p, float a)\n"+
+"{\n"+
+" return vec2(p.x * cos(a) - p.y * sin(a), p.x * sin(a) + p.y * cos(a));\n"+
+"}\n"+
+"float nac(vec3 p, vec2 F, vec3 o)\n"+
+"{\n"+
+" const float R = 0.0001;\n"+
+" p += o;\n"+
+" return length(max(abs(p.xy) - vec2(F), 0.0)) - R;\n"+
+"}\n"+
+"float by(vec3 p, float F, vec3 o)\n"+
+"{\n"+
+" const float R = 0.0001;\n"+
+" p += o;\n"+
+" return length(max(abs(mod(p.xy, 3.0)) - F, 0.0)) - R;\n"+
+"}\n"+
+"float recta(vec3 p, vec3 F, vec3 o)\n"+
+"{\n"+
+" const float R = 0.0001;\n"+
+" p += o;\n"+
+" return length(max(abs(p) - F, 0.0)) - R;\n"+
+"}\n"+
+"float map1(vec3 p, float scale)\n"+
+"{\n"+
+" float G = 0.50;\n"+
+" float F = 0.50 * scale;\n"+
+" float t = nac(p, vec2(F, F), vec3(G, G, 0.0));\n"+
+" t = min(t, nac(p, vec2(F, F), vec3(G, - G, 0.0)));\n"+
+" t = min(t, nac(p, vec2(F, F), vec3(- G, G, 0.0)));\n"+
+" t = min(t, nac(p, vec2(F, F), vec3(- G, - G, 0.0)));\n"+
+" return t;\n"+
+"}\n"+
+"float map2(vec3 p)\n"+
+"{\n"+
+" float t = map1(p, 0.9);\n"+
+" t = max(t, recta(p, vec3(1.0, 1.0, 0.02), vec3(0.0, 0.0, 0.0)));\n"+
+" return t;\n"+
+"}\n"+
+"float gennoise(vec2 p)\n"+
+"{\n"+
+" float d = 0.5;\n"+
+" mat2 h = mat2(1.6, 1.2, - 1.2, 1.6);\n"+
+" float color = 0.0;\n"+
+" for(int i = 0; i < 2; i ++)\n"+
+"  {\n"+
+"   color += d * noise(p * 5.0 + iTime);\n"+
+"   p *= h;\n"+
+"   d /= 2.0;\n"+
+"  }\n"+
+" return color;\n"+
+"}\n"+
+"void main()\n"+
+"{\n"+
+" fragColor = vec4(0.0);\n"+
+" for(int count = 0; count < 2; count ++)\n"+
+"  {\n"+
+"   vec2 uv = - 1.0 + 2.0 * (gl_FragCoord.xy / iResolution.xy);\n"+
+"   uv *= 1.4;\n"+
+"   uv.x += hash(uv.xy + iTime + float(count)) / 512.0;\n"+
+"   uv.y += hash(uv.yx + iTime + float(count)) / 512.0;\n"+
+"   vec3 dir = normalize(vec3(uv * vec2(iResolution.x / iResolution.y, 1.0), 1.0 + sin(iTime) * 0.01));\n"+
+"   dir.xz = rot(dir.xz, (70.0 * 3.1415926535897921284 / 180.0));\n"+
+"   dir.xy = rot(dir.xy, (90.0 * 3.1415926535897921284 / 180.0));\n"+
+"   vec3 pos = vec3(- 0.1 + sin(iTime * 0.3) * 0.1, 2.0 + cos(iTime * 0.4) * 0.1, - 3.5);\n"+
+"   vec3 col = vec3(0.0);\n"+
+"   float t = 0.0;\n"+
+"   float M = 1.002;\n"+
+"   float bsh = 0.01;\n"+
+"   float dens = 0.0;\n"+
+"   for(int i = 0; i < 25 * 24; i ++)\n"+
+"    {\n"+
+"     float temp = map1(pos + dir * t, 0.6);\n"+
+"     if(temp < 0.2)\n"+
+"      {\n"+
+"       col += (vec3(0.5, 0.7, 1.7)) * 0.005 * dens;\n"+
+"      }\n"+
+"     t += bsh * M;\n"+
+"     bsh *= M;\n"+
+"     dens += 0.025;\n"+
+"    }\n"+
+"   t = 0.0;\n"+
+"   float y = 0.0;\n"+
+"   for(int i = 0; i < 25 * 50; i ++)\n"+
+"    {\n"+
+"     float temp = map2(pos + dir * t);\n"+
+"     if(temp < 0.1)\n"+
+"      {\n"+
+"       col += (vec3(0.15, 0.8, 1.7)) * 0.005;\n"+
+"      }\n"+
+"     t += temp;\n"+
+"     y ++;\n"+
+"    }\n"+
+"   col += ((2.0 + uv.x) * (vec3(0.15, 0.8, 1.7))) + (y / (25.0 * 50.0));\n"+
+"   col += gennoise(dir.xz) * 0.5;\n"+
+"   col *= 1.0 - uv.y * 0.5;\n"+
+"   col *= vec3(0.05);\n"+
+"   col = pow(max(col, 1e-9), vec3(0.717));\n"+
+"   fragColor += vec4(col, 1.0 / (t));\n"+
+"  }\n"+
+" fragColor /= vec4(2.0);\n"+
+" fragColor.w = 1.0;\n"+
+"}\n"+
+"";
+
+var bug5_shader2 = "#version 300 es\n"+
+"precision highp float;\n"+
+"\n"+
+"layout(location = 0) out vec4 fragColor;\n"+
+"\n"+
+"uniform vec2 iResolution;\n"+
+"\n"+
+"uniform float iTime;\n"+
+"\n"+
+"uniform float iTimeDelta;\n"+
+"\n"+
+"uniform vec4 iMouse;\n"+
+"\n"+
+"uniform int iFrame;\n"+
+"\n"+
+"struct bound3 {\n"+
+" vec3 mMin;\n"+
+" vec3 mMax;\n"+
+"} ;\n"+
+"\n"+
+"bound3 BezierAABB(vec3 p0, vec3 p1, vec3 p2, vec3 p3)\n"+
+"{\n"+
+" vec3 mi = min(p0, p3);\n"+
+" vec3 ma = max(p0, p3);\n"+
+" vec3 c = - 1.0 * p0 + 1.0 * p1;\n"+
+" vec3 b = 1.0 * p0 - 2.0 * p1 + 1.0 * p2;\n"+
+" vec3 a = - 1.0 * p0 + 3.0 * p1 - 3.0 * p2 + 1.0 * p3;\n"+
+" vec3 h = b * b - a * c;\n"+
+" if(any(greaterThan(h, vec3(0.0))))\n"+
+"  {\n"+
+"   vec3 g = sqrt(abs(h));\n"+
+"   vec3 t1 = clamp((- b - g) / a, 0.0, 1.0);\n"+
+"   vec3 s1 = 1.0 - t1;\n"+
+"   vec3 t2 = clamp((- b + g) / a, 0.0, 1.0);\n"+
+"   vec3 s2 = 1.0 - t2;\n"+
+"   vec3 q1 = s1 * s1 * s1 * p0 + 3.0 * s1 * s1 * t1 * p1 + 3.0 * s1 * t1 * t1 * p2 + t1 * t1 * t1 * p3;\n"+
+"   vec3 q2 = s2 * s2 * s2 * p0 + 3.0 * s2 * s2 * t2 * p1 + 3.0 * s2 * t2 * t2 * p2 + t2 * t2 * t2 * p3;\n"+
+"   if(h.x > 0.0)\n"+
+"    {\n"+
+"     mi.x = min(mi.x, min(q1.x, q2.x));\n"+
+"     ma.x = max(ma.x, max(q1.x, q2.x));\n"+
+"    }\n"+
+"   if(h.y > 0.0)\n"+
+"    {\n"+
+"     mi.y = min(mi.y, min(q1.y, q2.y));\n"+
+"     ma.y = max(ma.y, max(q1.y, q2.y));\n"+
+"    }\n"+
+"   if(h.z > 0.0)\n"+
+"    {\n"+
+"     mi.z = min(mi.z, min(q1.z, q2.z));\n"+
+"     ma.z = max(ma.z, max(q1.z, q2.z));\n"+
+"    }\n"+
+"  }\n"+
+" return bound3(mi, ma);\n"+
+"}\n"+
+"float iEllipse(vec3 ro, vec3 rd, vec3 c, vec3 u, vec3 v)\n"+
+"{\n"+
+" vec3 q = ro - c;\n"+
+" vec3 r = vec3(dot(cross(u, v), q), dot(cross(q, u), rd), dot(cross(v, q), rd)) / dot(cross(v, u), rd);\n"+
+" return (dot(r.yz, r.yz) < 1.0) ? r.x : - 1.0;\n"+
+"}\n"+
+"vec2 iBox(vec3 ro, vec3 rd, vec3 cen, vec3 rad)\n"+
+"{\n"+
+" vec3 m = 1.0 / rd;\n"+
+" vec3 n = m * (ro - cen);\n"+
+" vec3 k = abs(m) * rad;\n"+
+" vec3 t1 = - n - k;\n"+
+" vec3 t2 = - n + k;\n"+
+" float tN = max(max(t1.x, t1.y), t1.z);\n"+
+" float tF = min(min(t2.x, t2.y), t2.z);\n"+
+" if(tN > tF || tF < 0.0)\n"+
+"  {\n"+
+"   return vec2(- 1.0);\n"+
+"  }\n"+
+" return vec2(tN, tF);\n"+
+"}\n"+
+"float length2(vec3 v)\n"+
+"{\n"+
+" return dot(v, v);\n"+
+"}\n"+
+"vec3 iSegment(vec3 ro, vec3 rd, vec3 a, vec3 b)\n"+
+"{\n"+
+" vec3 ba = b - a;\n"+
+" vec3 oa = ro - a;\n"+
+" float oad = dot(oa, rd);\n"+
+" float dba = dot(rd, ba);\n"+
+" float baba = dot(ba, ba);\n"+
+" float oaba = dot(oa, ba);\n"+
+" vec2 th = vec2(- oad * baba + dba * oaba, oaba - oad * dba) / (baba - dba * dba);\n"+
+" th.x = max(th.x, 0.0);\n"+
+" th.y = clamp(th.y, 0.0, 1.0);\n"+
+" vec3 p = a + ba * th.y;\n"+
+" vec3 q = ro + rd * th.x;\n"+
+" return vec3(th, length2(p - q));\n"+
+"}\n"+
+"float iBezier(vec3 ro, vec3 rd, vec3 p0, vec3 p1, vec3 p2, vec3 p3, float width)\n"+
+"{\n"+
+" const int kNum = 50;\n"+
+" float hit = - 1.0;\n"+
+" float res = 1e10;\n"+
+" vec3 a = p0;\n"+
+" for(int i = 1; i < kNum; i ++)\n"+
+"  {\n"+
+"   float t = float(i) / float(kNum - 1);\n"+
+"   float s = 1.0 - t;\n"+
+"   vec3 b = p0 * s * s * s + p1 * 3.0 * s * s * t + p2 * 3.0 * s * t * t + p3 * t * t * t;\n"+
+"   vec3 r = iSegment(ro, rd, a, b);\n"+
+"   if(r.z < width * width)\n"+
+"    {\n"+
+"     res = min(res, r.x);\n"+
+"     hit = 1.0;\n"+
+"    }\n"+
+"   a = b;\n"+
+"  }\n"+
+" return res * hit;\n"+
+"}\n"+
+"float hash1(vec2 p)\n"+
+"{\n"+
+" return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453);\n"+
+"}\n"+
+"void main()\n"+
+"{\n"+
+" vec3 tot = vec3(0.0);\n"+
+" for(int m = 0; m < 3; m ++)\n"+
+"  {\n"+
+"   for(int n = 0; n < 3; n ++)\n"+
+"    {\n"+
+"     vec2 o = vec2(float(m), float(n)) / float(3) - 0.5;\n"+
+"     vec2 p = (- iResolution.xy + 2.0 * (gl_FragCoord.xy + o)) / iResolution.y;\n"+
+"     vec3 ro = vec3(- 0.5, 0.4, 1.5);\n"+
+"     vec3 ta = vec3(0.0, 0.0, 0.0);\n"+
+"     vec3 ww = normalize(ta - ro);\n"+
+"     vec3 uu = normalize(cross(ww, vec3(0.0, 1.0, 0.0)));\n"+
+"     vec3 vv = normalize(cross(uu, ww));\n"+
+"     vec3 rd = normalize(p.x * uu + p.y * vv + 1.5 * ww);\n"+
+"     float time = iTime * 0.5;\n"+
+"     vec3 p0 = vec3(0.8, 0.6, 0.8) * sin(time * 0.7 + vec3(3.0, 1.0, 2.0));\n"+
+"     vec3 p1 = vec3(0.8, 0.6, 0.8) * sin(time * 1.1 + vec3(0.0, 6.0, 1.0));\n"+
+"     vec3 p2 = vec3(0.8, 0.6, 0.8) * sin(time * 1.3 + vec3(4.0, 2.0, 3.0));\n"+
+"     vec3 p3 = vec3(0.8, 0.6, 0.8) * sin(time * 1.5 + vec3(1.0, 5.0, 4.0));\n"+
+"     float thickness = 0.01;\n"+
+"     vec3 col = vec3(0.4) * (1.0 - 0.3 * length(p));\n"+
+"     float t = iBezier(ro, rd, p0, p1, p2, p3, thickness);\n"+
+"     float tmin = 1e10;\n"+
+"     if(t > 0.0)\n"+
+"      {\n"+
+"       tmin = t;\n"+
+"       col = vec3(1.0, 0.75, 0.3);\n"+
+"      }\n"+
+"     bound3 bbox = BezierAABB(p0, p1, p2, p3);\n"+
+"     bbox.mMin -= thickness;\n"+
+"     bbox.mMax += thickness;\n"+
+"     vec3 bcen = 0.5 * (bbox.mMin + bbox.mMax);\n"+
+"     vec3 brad = 0.5 * (bbox.mMax - bbox.mMin);\n"+
+"     vec2 tbox = iBox(ro, rd, bcen, brad);\n"+
+"     if(tbox.x > 0.0)\n"+
+"      {\n"+
+"       if(tbox.y < tmin)\n"+
+"        {\n"+
+"         vec3 pos = ro + rd * tbox.y;\n"+
+"         vec3 e = smoothstep(brad - 0.03, brad - 0.02, abs(pos - bcen));\n"+
+"         float al = 1.0 - (1.0 - e.x * e.y) * (1.0 - e.y * e.z) * (1.0 - e.z * e.x);\n"+
+"         col = mix(col, vec3(0.0), 0.25 + 0.75 * al);\n"+
+"        }\n"+
+"       if(tbox.x < tmin)\n"+
+"        {\n"+
+"         vec3 pos = ro + rd * tbox.x;\n"+
+"         vec3 e = smoothstep(brad - 0.03, brad - 0.02, abs(pos - bcen));\n"+
+"         float al = 1.0 - (1.0 - e.x * e.y) * (1.0 - e.y * e.z) * (1.0 - e.z * e.x);\n"+
+"         col = mix(col, vec3(0.0), 0.15 + 0.85 * al);\n"+
+"        }\n"+
+"      }\n"+
+"     tot += col;\n"+
+"    }\n"+
+"  }\n"+
+" tot /= float(3 * 3);\n"+
+" tot += ((hash1(gl_FragCoord.xy) + hash1(gl_FragCoord.yx + 13.1)) / 2.0 - 0.5) / 256.0;\n"+
+" fragColor = vec4(tot, 1.0);\n"+
+" fragColor.w = 1.0;\n"+
+"}\n"+
+"";
+
 var bug6Src = "#version 300 es\n"+
 "precision highp float;\n"+
 "\n"+
@@ -12487,3 +14472,747 @@ var bug6Src = "#version 300 es\n"+
 "    fragColor = mix(fragColor_2, fragColor, iTime);\n"+
 "}\n"+
 "";
+
+var bug6_shader1 = "#version 300 es\n"+
+"precision highp float;\n"+
+"\n"+
+"layout(location = 0) out vec4 fragColor;\n"+
+"\n"+
+"uniform vec2 iResolution;\n"+
+"\n"+
+"uniform float iTime;\n"+
+"\n"+
+"uniform float iTimeDelta;\n"+
+"\n"+
+"uniform vec4 iMouse;\n"+
+"\n"+
+"uniform int iFrame;\n"+
+"\n"+
+"const vec3 backgroundColor = vec3(0.2, 0.4, 0.6) * 0.09;\n"+
+"\n"+
+"float hash(float n)\n"+
+"{\n"+
+" return fract(sin(n) * 687.3123);\n"+
+"}\n"+
+"float noise(vec2 x)\n"+
+"{\n"+
+" vec2 p = floor(x);\n"+
+" vec2 f = fract(x);\n"+
+" f = f * f * (3.0 - 2.0 * f);\n"+
+" float n = p.x + p.y * 157.0;\n"+
+" return mix(mix(hash(n + 0.0), hash(n + 1.0), f.x), mix(hash(n + 157.0), hash(n + 158.0), f.x), f.y);\n"+
+"}\n"+
+"const mat2 m2 = mat2(0.80, - 0.60, 0.60, 0.80);\n"+
+"\n"+
+"float fbm(vec2 p)\n"+
+"{\n"+
+" float f = 0.0;\n"+
+" f += 0.5000 * noise(p);\n"+
+" p = m2 * p * 2.02;\n"+
+" f += 0.2500 * noise(p);\n"+
+" p = m2 * p * 2.03;\n"+
+" f += 0.1250 * noise(p);\n"+
+" p = m2 * p * 2.01;\n"+
+" return f / 0.9375;\n"+
+"}\n"+
+"float udRoundBox(vec3 p, vec3 b, float r)\n"+
+"{\n"+
+" return length(max(abs(p) - b, 0.0)) - r;\n"+
+"}\n"+
+"float sdBox(vec3 p, vec3 b)\n"+
+"{\n"+
+" vec3 d = abs(p) - b;\n"+
+" return min(max(d.x, max(d.y, d.z)), 0.0) + length(max(d, 0.0));\n"+
+"}\n"+
+"float sdSphere(vec3 p, float s)\n"+
+"{\n"+
+" return length(p) - s;\n"+
+"}\n"+
+"float sdCylinder(vec3 p, vec2 h)\n"+
+"{\n"+
+" vec2 d = abs(vec2(length(p.xz), p.y)) - h;\n"+
+" return min(max(d.x, d.y), 0.0) + length(max(d, 0.0));\n"+
+"}\n"+
+"float opU(float d2, float d1)\n"+
+"{\n"+
+" return min(d1, d2);\n"+
+"}\n"+
+"float opS(float d2, float d1)\n"+
+"{\n"+
+" return max(- d1, d2);\n"+
+"}\n"+
+"float smin(float a, float b, float k)\n"+
+"{\n"+
+" return - log(exp(- k * a) + exp(- k * b)) / k;\n"+
+"}\n"+
+"float mapCar(vec3 p0)\n"+
+"{\n"+
+" vec3 p = p0 + vec3(0.0, 1.24, 0.0);\n"+
+" float r = length(p.yz);\n"+
+" float d = length(max(vec3(abs(p.x) - 0.35, r - 1.92, - p.y + 1.4), 0.0)) - 0.05;\n"+
+" d = max(d, p.z - 1.0);\n"+
+" p = p0 + vec3(0.0, - 0.22, 0.39);\n"+
+" p.xz = abs(p.xz) - vec2(0.5300, 0.9600);\n"+
+" p.x = abs(p.x);\n"+
+" r = length(p.yz);\n"+
+" d = smin(d, length(max(vec3(p.x - 0.08, r - 0.25, - p.y - 0.08), 0.0)) - 0.04, 8.0);\n"+
+" d = max(d, - max(p.x - 0.165, r - 0.24));\n"+
+" float d2 = length(vec2(max(p.x - 0.13, 0.0), r - 0.2)) - 0.02;\n"+
+" d = min(d, d2);\n"+
+" return d;\n"+
+"}\n"+
+"float dL;\n"+
+"\n"+
+"float map(const vec3 p)\n"+
+"{\n"+
+" vec3 pd = p;\n"+
+" float d;\n"+
+" pd.x = abs(pd.x);\n"+
+" pd.z *= - sign(p.x);\n"+
+" float ch = hash(floor((pd.z + 18. * (iTime + 95.3)) / 40.));\n"+
+" float lh = hash(floor(pd.z / 13.));\n"+
+" vec3 pdm = vec3(pd.x, pd.y, mod(pd.z, 10.) - 5.);\n"+
+" dL = sdSphere(vec3(pdm.x - 8.1, pdm.y - 4.5, pdm.z), 0.1);\n"+
+" dL = opU(dL, sdBox(vec3(pdm.x - 12., pdm.y - 9.5 - lh, mod(pd.z, 91.) - 45.5), vec3(0.2, 4.5, 0.2)));\n"+
+" dL = opU(dL, sdBox(vec3(pdm.x - 12., pdm.y - 11.5 + lh, mod(pd.z, 31.) - 15.5), vec3(0.22, 5.5, 0.2)));\n"+
+" dL = opU(dL, sdBox(vec3(pdm.x - 12., pdm.y - 8.5 - lh, mod(pd.z, 41.) - 20.5), vec3(0.24, 3.5, 0.2)));\n"+
+" if(lh > 0.5)\n"+
+"  {\n"+
+"   dL = opU(dL, sdBox(vec3(pdm.x - 12.5, pdm.y - 2.75 - lh, mod(pd.z, 13.) - 6.5), vec3(0.1, 0.25, 3.2)));\n"+
+"  }\n"+
+" vec3 pm = vec3(mod(pd.x + floor(pd.z * 4.) * 0.25, 0.5) - 0.25, pd.y, mod(pd.z, 0.25) - 0.125);\n"+
+" d = udRoundBox(pm, vec3(0.245, 0.1, 0.12), 0.005);\n"+
+" d = opS(d, - (p.x + 8.));\n"+
+" d = opU(d, pd.y);\n"+
+" vec3 pdc = vec3(pd.x, pd.y, mod(pd.z + 18. * (iTime + 95.3), 40.) - 20.);\n"+
+" if(ch > 0.75)\n"+
+"  {\n"+
+"   pdc.x += (ch - 0.75) * 4.;\n"+
+"   dL = opU(dL, sdSphere(vec3(abs(pdc.x - 5.) - 1.05, pdc.y - 0.55, pdc.z), 0.025));\n"+
+"   dL = opU(dL, sdSphere(vec3(abs(pdc.x - 5.) - 1.2, pdc.y - 0.65, pdc.z + 6.05), 0.025));\n"+
+"   d = opU(d, mapCar((pdc - vec3(5., - 0.025, - 2.3)) * 0.45));\n"+
+"  }\n"+
+" d = opU(d, 13. - pd.x);\n"+
+" d = opU(d, sdCylinder(vec3(pdm.x - 8.5, pdm.y, pdm.z), vec2(0.075, 4.5)));\n"+
+" d = opU(d, dL);\n"+
+" return d;\n"+
+"}\n"+
+"vec3 calcNormalSimple(vec3 pos)\n"+
+"{\n"+
+" const vec2 e = vec2(1.0, - 1.0) * 0.005;\n"+
+" vec3 n = normalize(e.xyy * map(pos + e.xyy) + e.yyx * map(pos + e.yyx) + e.yxy * map(pos + e.yxy) + e.xxx * map(pos + e.xxx));\n"+
+" return n;\n"+
+"}\n"+
+"vec3 calcNormal(vec3 pos)\n"+
+"{\n"+
+" vec3 n = calcNormalSimple(pos);\n"+
+" if(pos.y > 0.12)\n"+
+"  {\n"+
+"   return n;\n"+
+"  }\n"+
+" vec2 oc = floor(vec2(pos.x + floor(pos.z * 4.) * 0.25, pos.z) * vec2(2., 4.));\n"+
+" if(abs(pos.x) < 8.)\n"+
+"  {\n"+
+"   oc = pos.xz;\n"+
+"  }\n"+
+" vec3 p = pos * 250.;\n"+
+" vec3 xn = 0.05 * vec3(noise(p.xz) - 0.5, 0., noise(p.zx) - 0.5);\n"+
+" xn += 0.1 * vec3(fbm(oc.xy) - 0.5, 0., fbm(oc.yx) - 0.5);\n"+
+" n = normalize(xn + n);\n"+
+" return n;\n"+
+"}\n"+
+"vec3 int1, int2, nor1;\n"+
+"\n"+
+"vec4 lint1, lint2;\n"+
+"\n"+
+"float intersect(vec3 ro, vec3 rd)\n"+
+"{\n"+
+" const float precis = 0.001;\n"+
+" float h = precis * 2.0;\n"+
+" float t = 0.;\n"+
+" int1 = int2 = vec3(- 500.);\n"+
+" lint1 = lint2 = vec4(- 500.);\n"+
+" float mld = 100.;\n"+
+" for(int i = 0; i < 128; i ++)\n"+
+"  {\n"+
+"   h = map(ro + rd * t);\n"+
+"   if(dL < mld)\n"+
+"    {\n"+
+"     mld = dL;\n"+
+"     lint1.xyz = ro + rd * t;\n"+
+"     lint1.w = abs(dL);\n"+
+"    }\n"+
+"   if(h < precis)\n"+
+"    {\n"+
+"     int1.xyz = ro + rd * t;\n"+
+"     break;\n"+
+"    }\n"+
+"   t += max(h, precis * 2.);\n"+
+"  }\n"+
+" if(int1.z < - 400. || t > 300.)\n"+
+"  {\n"+
+"   float d = - (ro.y + 0.1) / rd.y;\n"+
+"   if(d > 0.)\n"+
+"    {\n"+
+"     int1.xyz = ro + rd * d;\n"+
+"    }\n"+
+"   else\n"+
+"    {\n"+
+"     return - 1.;\n"+
+"    }\n"+
+"  }\n"+
+" ro = ro + rd * t;\n"+
+" nor1 = calcNormal(ro);\n"+
+" ro += 0.01 * nor1;\n"+
+" rd = reflect(rd, nor1);\n"+
+" t = 0.0;\n"+
+" h = precis * 2.0;\n"+
+" mld = 100.;\n"+
+" for(int i = 0; i < 48; i ++)\n"+
+"  {\n"+
+"   h = map(ro + rd * t);\n"+
+"   if(dL < mld)\n"+
+"    {\n"+
+"     mld = dL;\n"+
+"     lint2.xyz = ro + rd * t;\n"+
+"     lint2.w = abs(dL);\n"+
+"    }\n"+
+"   if(h < precis)\n"+
+"    {\n"+
+"     int2.xyz = ro + rd * t;\n"+
+"     return 1.;\n"+
+"    }\n"+
+"   t += max(h, precis * 2.);\n"+
+"  }\n"+
+" return 0.;\n"+
+"}\n"+
+"vec3 shade(vec3 ro, vec3 pos, vec3 nor)\n"+
+"{\n"+
+" vec3 col = vec3(0.5);\n"+
+" if(abs(pos.x) > 15. || abs(pos.x) < 8.)\n"+
+"  {\n"+
+"   col = vec3(0.02);\n"+
+"  }\n"+
+" if(pos.y < 0.01)\n"+
+"  {\n"+
+"   if(abs(int1.x) < 0.1)\n"+
+"    {\n"+
+"     col = vec3(0.9);\n"+
+"    }\n"+
+"   if(abs(abs(int1.x) - 7.4) < 0.1)\n"+
+"    {\n"+
+"     col = vec3(0.9);\n"+
+"    }\n"+
+"  }\n"+
+" float sh = clamp(dot(nor, normalize(vec3(- 0.3, 0.3, - 0.5))), 0., 1.);\n"+
+" col *= (sh * backgroundColor);\n"+
+" if(abs(pos.x) > 12.9 && pos.y > 9.)\n"+
+"  {\n"+
+"   float ha = hash(133.1234 * floor(pos.y / 3.) + floor((pos.z) / 3.));\n"+
+"   if(ha > 0.95)\n"+
+"    {\n"+
+"     col = ((ha - 0.95) * 10.) * vec3(1., 0.7, 0.4);\n"+
+"    }\n"+
+"  }\n"+
+" col = mix(backgroundColor, col, exp(min(max(0.1 * pos.y, 0.25) - 0.065 * distance(pos, ro), 0.)));\n"+
+" return col;\n"+
+"}\n"+
+"vec3 getLightColor(vec3 pos)\n"+
+"{\n"+
+" vec3 lcol = vec3(1., .7, .5);\n"+
+" vec3 pd = pos;\n"+
+" pd.x = abs(pd.x);\n"+
+" pd.z *= - sign(pos.x);\n"+
+" float ch = hash(floor((pd.z + 18. * (iTime + 95.3)) / 40.));\n"+
+" vec3 pdc = vec3(pd.x, pd.y, mod(pd.z + 18. * (iTime + 95.3), 40.) - 20.);\n"+
+" if(ch > 0.75)\n"+
+"  {\n"+
+"   pdc.x += (ch - 0.75) * 4.;\n"+
+"   if(sdSphere(vec3(abs(pdc.x - 5.) - 1.05, pdc.y - 0.55, pdc.z), 0.25) < 2.)\n"+
+"    {\n"+
+"     lcol = vec3(1., 0.05, 0.01);\n"+
+"    }\n"+
+"  }\n"+
+" if(pd.y > 2. && abs(pd.x) > 10. && pd.y < 5.)\n"+
+"  {\n"+
+"   float fl = floor(pd.z / 13.);\n"+
+"   lcol = 0.4 * lcol + 0.5 * vec3(hash(.1562 + fl), hash(.423134 + fl), 0.);\n"+
+"  }\n"+
+" if(abs(pd.x) > 10. && pd.y > 5.)\n"+
+"  {\n"+
+"   float fl = floor(pd.z / 2.);\n"+
+"   lcol = 0.5 * lcol + 0.5 * vec3(hash(.1562 + fl), hash(.923134 + fl), hash(.423134 + fl));\n"+
+"  }\n"+
+" return lcol;\n"+
+"}\n"+
+"float randomStart(vec2 co)\n"+
+"{\n"+
+" return 0.8 + 0.2 * hash(dot(co, vec2(123.42, 117.853)) * 412.453);\n"+
+"}\n"+
+"void main()\n"+
+"{\n"+
+" vec2 q = gl_FragCoord.xy / iResolution.xy;\n"+
+" vec2 p = - 1.0 + 2.0 * q;\n"+
+" p.x *= iResolution.x / iResolution.y;\n"+
+" if(q.y < .12 || q.y >= .88)\n"+
+"  {\n"+
+"   fragColor = vec4(0., 0., 0., 1.);\n"+
+"   fragColor.w = 1.0;\n"+
+"   return;\n"+
+"  }\n"+
+" else\n"+
+"  {\n"+
+"   float z = (iTime + 95.3);\n"+
+"   float x = - 10.9 + 1. * sin((iTime + 95.3) * 0.2);\n"+
+"   vec3 ro = vec3(x, 1.3 + .3 * cos((iTime + 95.3) * 0.26), z - 1.);\n"+
+"   vec3 ta = vec3(- 8., 1.3 + .4 * cos((iTime + 95.3) * 0.26), z + 4. + cos((iTime + 95.3) * 0.04));\n"+
+"   vec3 ww = normalize(ta - ro);\n"+
+"   vec3 uu = normalize(cross(ww, vec3(0.0, 1.0, 0.0)));\n"+
+"   vec3 vv = normalize(cross(uu, ww));\n"+
+"   vec3 rd = normalize(- p.x * uu + p.y * vv + 2.2 * ww);\n"+
+"   vec3 col = backgroundColor;\n"+
+"   float ints = intersect(ro + randomStart(p) * rd, rd);\n"+
+"   if(ints > - 0.5)\n"+
+"    {\n"+
+"     float r = 0.09;\n"+
+"     if(int1.y > 0.129)\n"+
+"      {\n"+
+"       r = 0.025 * hash(133.1234 * floor(int1.y / 3.) + floor(int1.z / 3.));\n"+
+"      }\n"+
+"     if(abs(int1.x) < 8.)\n"+
+"      {\n"+
+"       if(int1.y < 0.01)\n"+
+"        {\n"+
+"         r = 0.007 * fbm(int1.xz);\n"+
+"        }\n"+
+"       else\n"+
+"        {\n"+
+"         r = 0.02;\n"+
+"        }\n"+
+"      }\n"+
+"     if(abs(int1.x) < 0.1)\n"+
+"      {\n"+
+"       r *= 4.;\n"+
+"      }\n"+
+"     if(abs(abs(int1.x) - 7.4) < 0.1)\n"+
+"      {\n"+
+"       r *= 4.;\n"+
+"      }\n"+
+"     r *= 2.;\n"+
+"     col = shade(ro, int1.xyz, nor1);\n"+
+"     if(ints > 0.5)\n"+
+"      {\n"+
+"       col += r * shade(int1.xyz, int2.xyz, calcNormalSimple(int2.xyz));\n"+
+"      }\n"+
+"     if(lint2.w > 0.)\n"+
+"      {\n"+
+"       col += (r * 5. * exp(- lint2.w * 7.0)) * getLightColor(lint2.xyz);\n"+
+"      }\n"+
+"    }\n"+
+"   vec2 st = 256. * (p * vec2(.5, .01) + vec2((iTime + 95.3) * .13 - q.y * .6, (iTime + 95.3) * .13));\n"+
+"   float f = noise(st) * noise(st * 0.773) * 1.55;\n"+
+"   f = 0.25 + clamp(pow(max(abs(f), 1e-9), 13.0) * 13.0, 0.0, q.y * .14);\n"+
+"   if(lint1.w > 0.)\n"+
+"    {\n"+
+"     col += (f * 5. * exp(- lint1.w * 7.0)) * getLightColor(lint1.xyz);\n"+
+"    }\n"+
+"   col += 0.25 * f * (0.2 + backgroundColor);\n"+
+"   col = pow(max(clamp(col, 0.0, 1.0), 1e-9), vec3(0.4545));\n"+
+"   col *= 1.2 * vec3(1., 0.99, 0.95);\n"+
+"   col = clamp(1.06 * col - 0.03, 0., 1.);\n"+
+"   q.y = (q.y - .12) * (1. / 0.76);\n"+
+"   col *= 0.5 + 0.5 * pow(max(16.0 * q.x * q.y * (1.0 - q.x) * (1.0 - q.y), 1e-9), 0.1);\n"+
+"   fragColor = vec4(col, 1.0);\n"+
+"  }\n"+
+" fragColor.w = 1.0;\n"+
+"}\n"+
+"";
+
+var bug6_shader2 = "#version 300 es\n"+
+"precision highp float;\n"+
+"\n"+
+"layout(location = 0) out vec4 fragColor;\n"+
+"\n"+
+"uniform vec2 iResolution;\n"+
+"\n"+
+"uniform float iTime;\n"+
+"\n"+
+"uniform float iTimeDelta;\n"+
+"\n"+
+"uniform vec4 iMouse;\n"+
+"\n"+
+"uniform int iFrame;\n"+
+"\n"+
+"float hash_5(vec2 p)\n"+
+"{\n"+
+" return fract(1e4 * sin(17.0 * p.x + p.y * 0.1) * (0.1 + abs(sin(p.y * 13.0 + p.x))));\n"+
+"}\n"+
+"float noise_1(vec2 x)\n"+
+"{\n"+
+" vec2 i = floor(x);\n"+
+" vec2 f = fract(x);\n"+
+" float a = hash_5(i);\n"+
+" float b = hash_5(i + vec2(1.0, 0.0));\n"+
+" float c = hash_5(i + vec2(0.0, 1.0));\n"+
+" float d = hash_5(i + vec2(1.0, 1.0));\n"+
+" vec2 u = f * f * (3.0 - 2.0 * f);\n"+
+" return mix(a, b, u.x) + (c - a) * u.y * (1.0 - u.x) + (d - b) * u.x * u.y;\n"+
+"}\n"+
+"float fbm_3(vec2 p)\n"+
+"{\n"+
+" const mat2 m2 = mat2(0.8, - 0.6, 0.6, 0.8);\n"+
+" float f = 0.5000 * noise_1(p);\n"+
+" p = m2 * p * 2.02;\n"+
+" f += 0.2500 * noise_1(p);\n"+
+" p = m2 * p * 2.03;\n"+
+" f += 0.1250 * noise_1(p);\n"+
+" p = m2 * p * 2.01;\n"+
+" f += 0.0625 * noise_1(p);\n"+
+" return f;\n"+
+"}\n"+
+"float sdSphere(vec3 p, float s)\n"+
+"{\n"+
+" return length(p) - s;\n"+
+"}\n"+
+"float sdCapsule(vec3 p, vec3 a, vec3 b, float r)\n"+
+"{\n"+
+" vec3 pa = p - a;\n"+
+" vec3 ba = b - a;\n"+
+" float h = clamp(dot(pa, ba) / dot(ba, ba), 0.0, 1.0);\n"+
+" return length(pa - ba * h) - r;\n"+
+"}\n"+
+"vec2 opU(vec2 d1, vec2 d2)\n"+
+"{\n"+
+" return (d1.x < d2.x) ? d1 : d2;\n"+
+"}\n"+
+"vec2 opS(vec2 d1, vec2 d2)\n"+
+"{\n"+
+" return (- d1.x > d2.x) ? vec2(- d1.x, d1.y) : d2;\n"+
+"}\n"+
+"vec2 opSU(vec2 d1, vec2 d2, float k)\n"+
+"{\n"+
+" float h = clamp(0.5 + 0.5 * (d2.x - d1.x) / k, 0.0, 1.0);\n"+
+" return vec2(mix(d2.x, d1.x, h) - k * h * (1.0 - h), d1.y);\n"+
+"}\n"+
+"mat2 rot(float th)\n"+
+"{\n"+
+" vec2 a = sin(vec2(1.5707963, 0) + th);\n"+
+" return mat2(a, - a.y, a.x);\n"+
+"}\n"+
+"vec2 thinkingFace(vec3 p)\n"+
+"{\n"+
+" vec2 face = vec2(sdSphere(p, 1.0), 1.0);\n"+
+" vec3 q = p;\n"+
+" q.x = abs(q.x);\n"+
+" q.xz *= rot(- .3);\n"+
+" q.yz *= rot(- 0.25 + 0.05 * step(0.0, p.x));\n"+
+" q.y *= 0.8;\n"+
+" q.z *= 2.0;\n"+
+" q.z -= 2.0;\n"+
+" vec2 eye = vec2(sdSphere(q, .11) * 0.5, 2.0);\n"+
+" q = p;\n"+
+" q.x = abs(q.x);\n"+
+" q.xz *= rot(- .35);\n"+
+" q.yz *= rot(- 0.62 + 0.26 * step(0.0, p.x) + pow(max(abs(q.x), 1e-9), 1.7) * 0.5);\n"+
+" q.z -= 1.0;\n"+
+" vec2 brow = vec2(sdCapsule(q, vec3(0.2, 0.0, 0.0), vec3(- .2, 0.0, 0.0), .05) * 0.5, 4.0);\n"+
+" q = p;\n"+
+" q.yz *= rot(0.2 + pow(max(abs(p.x), 1e-9), 1.8));\n"+
+" q.xy *= rot(- 0.25);\n"+
+" q.z -= 1.0;\n"+
+" vec2 mouth = vec2(sdCapsule(q, vec3(0.2, 0.0, 0.0), vec3(- .2, 0.0, 0.0), .045), 4.0);\n"+
+" p -= vec3(- .25, - .73, 1.0);\n"+
+" p.xy *= rot(0.2);\n"+
+" q = p;\n"+
+" q = (q * vec3(1.2, 1.0, 2.0));\n"+
+" q -= vec3(0.0, 0.01, 0.0);\n"+
+" vec2 hand = vec2(sdSphere(q, .3) * 0.5, 3.0);\n"+
+" q = p;\n"+
+" vec2 finger1 = vec2(sdCapsule(q - vec3(0.3, 0.2, 0.02), vec3(0.2, 0.0, 0.0), vec3(- .2, 0.0, 0.0), .07), 3.0);\n"+
+" vec2 finger2 = vec2(sdCapsule(q * vec3(1.2, 1.0, .8) - vec3(0.2, 0.06, 0.02), vec3(0.1, 0.0, 0.0), vec3(- .1, 0.0, 0.0), .08), 3.0);\n"+
+" vec2 finger3 = vec2(sdCapsule(q * vec3(1.2, 1.0, .8) - vec3(0.15, - 0.08, 0.015), vec3(0.1, 0.0, 0.0), vec3(- .1, 0.0, 0.0), .08), 3.0);\n"+
+" vec2 finger4 = vec2(sdCapsule(q * vec3(1.2, 1.0, .9) - vec3(0.1, - 0.2, - 0.01), vec3(0.1, 0.0, 0.0), vec3(- .1, 0.0, 0.0), .08), 3.0);\n"+
+" p -= vec3(- 0.1, 0.3, 0.0);\n"+
+" q = p;\n"+
+" q.x -= q.y * 0.7;\n"+
+" vec2 finger5 = vec2(sdCapsule(p, vec3(0.0, - 0.2, 0.0) - q, vec3(0.0, 0.2, 0.0), .1 - p.y * 0.15), 3.0);\n"+
+" vec2 finger = opU(finger1, opU(finger5, opSU(finger2, opSU(finger3, finger4, 0.035), 0.035)));\n"+
+" hand = opSU(hand, finger, 0.02);\n"+
+" vec2 d = opU(eye, face);\n"+
+" d = opU(brow, d);\n"+
+" d = opS(mouth, d);\n"+
+" d = opU(hand, d);\n"+
+" return d;\n"+
+"}\n"+
+"float Noise2d(vec2 x)\n"+
+"{\n"+
+" float xhash = cos(x.x * 37.0);\n"+
+" float yhash = cos(x.y * 57.0);\n"+
+" return fract(415.92653 * (xhash + yhash));\n"+
+"}\n"+
+"float NoisyStarField(vec2 vSamplePos, float fThreshhold)\n"+
+"{\n"+
+" float StarVal = Noise2d(vSamplePos);\n"+
+" if(StarVal >= fThreshhold)\n"+
+"  {\n"+
+"   StarVal = pow(max((StarVal - fThreshhold) / (1.0 - fThreshhold), 1e-9), 6.0);\n"+
+"  }\n"+
+" else\n"+
+"  {\n"+
+"   StarVal = 0.0;\n"+
+"  }\n"+
+" return StarVal;\n"+
+"}\n"+
+"vec2 map(vec3 p)\n"+
+"{\n"+
+" vec2 think = thinkingFace(p - vec3(1., 3.5, 1.));\n"+
+" return think;\n"+
+"}\n"+
+"float hash_6(float n)\n"+
+"{\n"+
+" return fract(sin(n) * 43758.5453);\n"+
+"}\n"+
+"float noise_2(vec3 x)\n"+
+"{\n"+
+" vec3 p = floor(x);\n"+
+" vec3 f = fract(x);\n"+
+" f = f * f * (3.0 - 2.0 * f);\n"+
+" float n = p.x + p.y * 57.0 + 113.0 * p.z;\n"+
+" float res = mix(mix(mix(hash_6(n + 0.0), hash_6(n + 1.0), f.x), mix(hash_6(n + 57.0), hash_6(n + 58.0), f.x), f.y), mix(mix(hash_6(n + 113.0), hash_6(n + 114.0), f.x), mix(hash_6(n + 170.0), hash_6(n + 171.0), f.x), f.y), f.z);\n"+
+" return res;\n"+
+"}\n"+
+"mat3 m = mat3(0.00, 0.80, 0.60, - 0.80, 0.36, - 0.48, - 0.60, - 0.48, 0.64);\n"+
+"\n"+
+"float fbm_4(vec3 pos)\n"+
+"{\n"+
+" float o = 0.;\n"+
+" for(int i = 0; i < 5; i ++)\n"+
+"  {\n"+
+"   o = o * 2. + abs(noise_2(pos) * 2. - 1.);\n"+
+"   pos = m * pos * 2.;\n"+
+"  }\n"+
+" return o / 40.0;\n"+
+"}\n"+
+"vec3 normal(vec3 pos, float eps)\n"+
+"{\n"+
+" vec2 e = vec2(1.0, - 1.0) * 0.5773 * eps;\n"+
+" float intensity = 0.02;\n"+
+" float n1 = fbm_4(pos * 1.5 + e.xyy) * intensity;\n"+
+" float n2 = fbm_4(pos * 1.5 + e.yyx) * intensity;\n"+
+" float n3 = fbm_4(pos * 1.5 + e.yxy) * intensity;\n"+
+" float n4 = fbm_4(pos * 1.5 + e.xxx) * intensity;\n"+
+" return normalize(e.xyy * (map(pos + e.xyy).x + n1) + e.yyx * (map(pos + e.yyx).x + n2) + e.yxy * (map(pos + e.yxy).x + n3) + e.xxx * (map(pos + e.xxx).x + n4));\n"+
+"}\n"+
+"float shadow(vec3 p, vec3 l)\n"+
+"{\n"+
+" float t = 0.15;\n"+
+" float t_max = 20.0;\n"+
+" float res = 1.0;\n"+
+" for(int i = 0; i < 16; ++ i)\n"+
+"  {\n"+
+"   if(t > t_max)\n"+
+"    {\n"+
+"     break;\n"+
+"    }\n"+
+"   float d = map(p + t * l).x;\n"+
+"   if(d < 0.01)\n"+
+"    {\n"+
+"     return 0.0;\n"+
+"    }\n"+
+"   t += d;\n"+
+"   res = min(res, 1.0 * d / t);\n"+
+"  }\n"+
+" return res;\n"+
+"}\n"+
+"vec3 sunDir;\n"+
+"\n"+
+"vec3 fakeSky(vec3 rd)\n"+
+"{\n"+
+" vec3 moning = mix(vec3(0.85, 0.5, 0.2) * 1.1, vec3(0.2, 0.5, 0.85) * 1.1, rd.y);\n"+
+" vec3 noon = mix(vec3(0.2, 0.5, 0.85) * 1.3, vec3(0.05, 0.2, 0.7), rd.y);\n"+
+" vec3 col = noon;\n"+
+" col = mix(moning, noon, 1.0);\n"+
+" vec3 cloud = mix(mix(vec3(1.0, 0.95, 1.0), vec3(1.0, 0.2, 0.1), 1.0 - 1.0), vec3(0.02), 0.0);\n"+
+" col = mix(col, cloud, 0.75 * step(0.0, rd.y) * smoothstep(0.4, 0.9, fbm_3(vec2((iTime + 1.42), 0.0) + (rd.xz / rd.y) * 3.0)));\n"+
+" return col * 3.0;\n"+
+"}\n"+
+"float ndfGGX(float NdotH, float roughness)\n"+
+"{\n"+
+" float alpha = roughness * roughness;\n"+
+" float alphaSq = alpha * alpha;\n"+
+" float denom = (NdotH * NdotH) * (alphaSq - 1.0) + 1.0;\n"+
+" return alphaSq / (3.1415926 * denom * denom);\n"+
+"}\n"+
+"float gaSchlickG1(float theta, float k)\n"+
+"{\n"+
+" return theta / (theta * (1.0 - k) + k);\n"+
+"}\n"+
+"float gaSchlickGGX(float NdotL, float NdotV, float roughness)\n"+
+"{\n"+
+" float r = roughness + 1.0;\n"+
+" float k = (r * r) / 8.0;\n"+
+" return gaSchlickG1(NdotL, k) * gaSchlickG1(NdotV, k);\n"+
+"}\n"+
+"vec3 fresnelSchlick_roughness(vec3 F0, float cosTheta, float roughness)\n"+
+"{\n"+
+" return F0 + (max(vec3(1.0 - roughness), F0) - F0) * pow(max(1.0 - cosTheta, 1e-9), 5.0);\n"+
+"}\n"+
+"vec3 shade(vec3 pos, vec3 albedo, float metalness, float roughness, vec3 N, vec3 V, vec3 L, vec3 Lradiance)\n"+
+"{\n"+
+" vec3 H = normalize(L + V);\n"+
+" float NdotV = max(0.0, dot(N, V));\n"+
+" float NdotL = max(0.0, dot(N, L));\n"+
+" float NdotH = max(0.0, dot(N, H));\n"+
+" vec3 F0 = mix(vec3(0.04), albedo, metalness);\n"+
+" vec3 F = fresnelSchlick_roughness(F0, max(0.0, dot(H, L)), roughness);\n"+
+" float D = ndfGGX(NdotH, roughness);\n"+
+" float G = gaSchlickGGX(NdotL, NdotV, roughness);\n"+
+" vec3 kd = mix(vec3(1.0) - F, vec3(0.0), metalness);\n"+
+" float shadow = shadow(pos, L);\n"+
+" vec3 diffuseBRDF = kd * albedo / 3.1415926;\n"+
+" vec3 specularBRDF = (F * D * G) / max(0.0001, 4.0 * NdotL * NdotV);\n"+
+" return (diffuseBRDF + specularBRDF) * Lradiance * NdotL * shadow;\n"+
+"}\n"+
+"vec3 EnvBRDFApprox(vec3 SpecularColor, float Roughness, float NoV)\n"+
+"{\n"+
+" const vec4 c0 = vec4(- 1, - 0.0275, - 0.572, 0.022);\n"+
+" const vec4 c1 = vec4(1, 0.0425, 1.04, - 0.04);\n"+
+" vec4 r = Roughness * c0 + c1;\n"+
+" float a004 = min(r.x * r.x, exp2(- 9.28 * NoV)) * r.x + r.y;\n"+
+" vec2 AB = vec2(- 1.04, 1.04) * a004 + r.zw;\n"+
+" return SpecularColor * AB.x + AB.y;\n"+
+"}\n"+
+"float so(float NoV, float ao, float roughness)\n"+
+"{\n"+
+" return clamp(pow(max(NoV + ao, 1e-9), exp2(- 16.0 * roughness - 1.0)) - 1.0 + ao, 0.0, 1.0);\n"+
+"}\n"+
+"vec3 calcAmbient(vec3 pos, vec3 albedo, float metalness, float roughness, vec3 N, vec3 V, float t)\n"+
+"{\n"+
+" vec3 F0 = mix(vec3(0.04), albedo, metalness);\n"+
+" vec3 F = fresnelSchlick_roughness(F0, max(0.0, dot(N, V)), roughness);\n"+
+" vec3 kd = mix(vec3(1.0) - F, vec3(0.0), metalness);\n"+
+" float aoRange = t / 40.0;\n"+
+" float occlusion = max(0.0, 1.0 - map(pos + N * aoRange).x / aoRange);\n"+
+" occlusion = min(exp2(- .8 * pow(max(occlusion, 1e-9), 2.0)), 1.0);\n"+
+" vec3 ambientColor = mix(vec3(0.2, 0.5, 0.85) * 0.5, vec3(0.2, 0.25, 0.8) * 0.75, 0.5 + 0.5 * N.y);\n"+
+" ambientColor = mix(vec3(0.3, 0.15, 0.05), ambientColor, 1.0 - smoothstep(0.2, - 0.5, sunDir.y));\n"+
+" ambientColor = mix(vec3(0.03), ambientColor, 1.0 - smoothstep(- 0.2, - 0.5, sunDir.y));\n"+
+" vec3 diffuseAmbient = kd * albedo * ambientColor * min(1.0, 0.75 + 0.5 * N.y) * 3.0;\n"+
+" vec3 R = reflect(- V, N);\n"+
+" vec3 col = mix(fakeSky(R) * pow(max(1.0 - max(- R.y, 0.0), 1e-9), 4.0), ambientColor, pow(max(roughness, 1e-9), 0.5));\n"+
+" vec3 ref = EnvBRDFApprox(F0, roughness, max(dot(N, V), 0.0));\n"+
+" vec3 specularAmbient = col * ref;\n"+
+" diffuseAmbient *= occlusion;\n"+
+" specularAmbient *= so(max(0.0, dot(N, V)), occlusion, roughness);\n"+
+" return vec3(diffuseAmbient + specularAmbient);\n"+
+"}\n"+
+"vec3 materialize(vec3 p, vec3 ray, float depth, vec2 mat)\n"+
+"{\n"+
+" vec3 col = vec3(0.0);\n"+
+" vec3 nor = normal(p, 0.001);\n"+
+" vec3 sky = fakeSky(ray);\n"+
+" if(depth > 2000.0)\n"+
+"  {\n"+
+"   col = sky;\n"+
+"  }\n"+
+" else\n"+
+"  {\n"+
+"   float checker = mod(floor(p.x) + floor(p.z), 2.0);\n"+
+"   float roughness;\n"+
+"   float metalness;\n"+
+"   if(mat.y == 1.0)\n"+
+"    {\n"+
+"     col = pow(max(vec3(1.0, 204.0 / 255.0, 77.0 / 255.0), 1e-9), vec3(2.2)) * 0.6;\n"+
+"     roughness = 0.5;\n"+
+"     metalness = 0.0;\n"+
+"    }\n"+
+"   else\n"+
+"    {\n"+
+"     if(mat.y == 2.0)\n"+
+"      {\n"+
+"       col = pow(max(vec3(102.0 / 255.0, 69.0 / 255.0, 0.0), 1e-9), vec3(2.2)) * 0.6;\n"+
+"       roughness = 0.1;\n"+
+"       metalness = 0.0;\n"+
+"      }\n"+
+"     else\n"+
+"      {\n"+
+"       if(mat.y == 3.0)\n"+
+"        {\n"+
+"         col = pow(max(vec3(244.0 / 255.0, 144.0 / 255.0, 12.0 / 255.0), 1e-9), vec3(2.2)) * 0.7;\n"+
+"         roughness = 0.8;\n"+
+"         metalness = 0.0;\n"+
+"        }\n"+
+"       else\n"+
+"        {\n"+
+"         if(mat.y == 4.0)\n"+
+"          {\n"+
+"           col = pow(max(vec3(102.0 / 255.0, 69.0 / 255.0, 0.0), 1e-9), vec3(2.2)) * 0.8;\n"+
+"           roughness = 0.6;\n"+
+"           metalness = 0.0;\n"+
+"          }\n"+
+"        }\n"+
+"      }\n"+
+"    }\n"+
+"   vec3 result = vec3(0.);\n"+
+"   result += shade(p, col, metalness, roughness, nor, - ray, normalize(sunDir), vec3(1.0, 0.98, 0.95) * 100.) * 1.0;\n"+
+"   result += shade(p, col, metalness, roughness, nor, - ray, normalize(- sunDir), vec3(1.0, 0.98, 0.95) * 2.) * 0.0;\n"+
+"   result += calcAmbient(p, col, metalness, roughness, nor, - ray, depth);\n"+
+"   col = result;\n"+
+"  }\n"+
+" float fo = 1.0 - exp(- 0.0015 * depth);\n"+
+" col = mix(col, sky, fo);\n"+
+" return col;\n"+
+"}\n"+
+"vec3 trace(vec3 p, vec3 ray)\n"+
+"{\n"+
+" float t = 0.0;\n"+
+" vec3 pos;\n"+
+" vec2 mat;\n"+
+" for(int i = 0; i < 100; i ++)\n"+
+"  {\n"+
+"   pos = p + ray * t;\n"+
+"   mat = map(pos);\n"+
+"   if(mat.x < 0.00001)\n"+
+"    {\n"+
+"     break;\n"+
+"    }\n"+
+"   t += mat.x;\n"+
+"  }\n"+
+" return materialize(pos, ray, t, mat);\n"+
+"}\n"+
+"mat3 camera(vec3 ro, vec3 ta, float cr)\n"+
+"{\n"+
+" vec3 cw = normalize(ta - ro);\n"+
+" vec3 cp = vec3(sin(cr), cos(cr), 0.);\n"+
+" vec3 cu = normalize(cross(cw, cp));\n"+
+" vec3 cv = normalize(cross(cu, cw));\n"+
+" return mat3(cu, cv, cw);\n"+
+"}\n"+
+"float luminance(vec3 col)\n"+
+"{\n"+
+" return dot(vec3(0.298912, 0.586611, 0.114478), col);\n"+
+"}\n"+
+"vec3 reinhard(vec3 col, float exposure, float white)\n"+
+"{\n"+
+" col *= exposure;\n"+
+" white *= exposure;\n"+
+" float lum = luminance(col);\n"+
+" return (col * (lum / (white * white) + 1.0) / (lum + 1.0));\n"+
+"}\n"+
+"void main()\n"+
+"{\n"+
+" vec2 p = (gl_FragCoord.xy * 2.0 - iResolution.xy) / min(iResolution.x, iResolution.y);\n"+
+" float t = (iTime + 1.42) * 3.1415926 * 2.0 / 6.0 - 3.1415926 * 0.5;\n"+
+" sunDir = normalize(vec3(.5, sin(t), cos(t)));\n"+
+" vec3 ro = vec3(- 0.43 * 5.0, 1.3, 0.9 * 5.0);\n"+
+" vec3 ta = vec3(2.4, 4.6, - 0.3);\n"+
+" mat3 c = camera(ro, ta, 0.0);\n"+
+" vec3 ray = c * normalize(vec3(p, 3.5));\n"+
+" vec3 col = trace(ro, ray);\n"+
+" col = reinhard(col, .6, 30.0);\n"+
+" col = pow(max(col, 1e-9), vec3(1.0 / 2.2));\n"+
+" fragColor = vec4(col, 1.0);\n"+
+" fragColor.w = 1.0;\n"+
+"}\n"+
+"";
+

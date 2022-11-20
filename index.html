@@ -29,7 +29,7 @@
     <div class="instruction">
       <h1 id="instructions-for-reproducing-bugs">Instructions for reproducing bugs</h1>
       <p><strong>READ THIS BEFORE YOU START:</strong></p>
-      <p>Although we do not require any environment setup, we DO require your to satisfy the following three requirements:</p>
+      <p>Although we do not require environment setup, we DO have the following three requirements:</p>
       <ol>
       <li>You are on a Windows System</li>
       <li>This webpage is opened with Chrome</li>
@@ -44,23 +44,22 @@
       <p><strong>Steps to reproduce the bugs:</strong></p>
       <ol>
       <li>Select one of the 6 bugs from the dropdown list marked with &quot;SELECT HERE&quot;.</li>
-      <li>Wait for several seconds (depending on your machine).</li>
+      <li>Wait for several seconds (depending on the speed of your machine).</li>
       </ol>
       <p>And that&#39;s it!</p>
       <p>The shader source code of the corresponding bug will then be loaded
-      into the textarea marked with placeholder &quot;Source of fused shader.&quot;</p>
-      <p>The browser on your local machine will compile and execute the shader and display the rendering
+      into the textarea marked with placeholder &quot;Source of fused shader&quot;. The two shaders that are used to compose the fused shader are displayed in the middle.</p>
+      <p>The browser on your local machine will compile and execute the fused shader, and display the rendering
       output image on the left. The expected output image is displayed on the right.</p>
       <p>If you satisfy our three requirements, you would see that the rendering result is different from the expected one.</p>
-
     </div>
 
     <div class="shader-source">
-      <!-- <p>Souce code of fused shader composed of seed shader 1 and 2:</p> -->
+      <p>Souce code of fused shader composed of seed shader 1 and 2:</p>
       <textarea id="fused_shader" placeholder="Source of fused shader"></textarea>
     </div>
 
-    <!-- <div class="shader-source source1">
+    <div class="shader-source source1">
       <p>Source code of seed shader 1 used for shader fusion:</p>
       <textarea id="shader1" placeholder="Source of seed shader 1"></textarea>
     </div>
@@ -68,10 +67,10 @@
     <div class="shader-source source2">
       <p>Source code of seed shader 2 used for shader fusion:</p>
       <textarea id="shader2" placeholder="Source of seed shader 2"></textarea>
-    </div> -->
+    </div>
 
     <div>
-      <!-- <p></p> -->
+      <p></p>
       <label>Select to view the 6 bugs that FShader discovered: (SELECT HERE!): </label>
       <select id="select-bugs" onchange="loadAndRender()">
         <option value="default">-------</option>

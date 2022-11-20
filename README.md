@@ -21,9 +21,9 @@ Although we do not require environment setup, we DO have the following three req
 And that's it!
 
 The shader source code of the corresponding bug will then be loaded
-into the textarea marked with placeholder "Source of fused shader."
+into the textarea marked with placeholder "Source of fused shader". The two shaders that are used to compose the fused shader are displayed in the middle.
 
-The browser on your local machine will compile and execute the shader, and display the rendering
+The browser on your local machine will compile and execute the fused shader, and display the rendering
 output image on the left. The expected output image is displayed on the right.
 
 If you satisfy our three requirements, you would see that the rendering result is different from the expected one.
