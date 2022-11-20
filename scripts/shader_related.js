@@ -2,7 +2,7 @@ function loadAndRender() {
     var bugName = document.getElementById("select-bugs").value;
     if (bugName === "default")
         return;
-    document.getElementById("shader_source").value = bugs[bugName].src;
+    document.getElementById("fused_shader").value = bugs[bugName].src;
     document.getElementById("expected-image").src = bugs[bugName].image;
     startSafe();
 }

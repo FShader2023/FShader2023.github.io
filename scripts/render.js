@@ -14,10 +14,10 @@ function stop() {
 
 function startSafe() {
   try {
-    document.getElementById("console").value = "";
+    // document.getElementById("console").value = "";
     start();
   } catch(e) {
-    document.getElementById("console").value = e;
+    // document.getElementById("console").value = e;
   }
 }
 
@@ -28,10 +28,10 @@ function start() {
          + "void main(void) {\n"
          + "    gl_Position = vec4(a_position, 1.0);\n"
          + "}\n";
-  if (document.getElementById("shader_source").value == "") {
+  if (document.getElementById("fused_shader").value == "") {
     return;
   }
-  var fragmentShaderSource = document.getElementById("shader_source").value;
+  var fragmentShaderSource = document.getElementById("fused_shader").value;
 
   var vertices = [
     -1.0,  1.0,
@@ -121,7 +121,7 @@ function start() {
     
     gl.drawElements(gl.TRIANGLES, 6, gl.UNSIGNED_SHORT, 0);
 
-    requestAnimationFrame(drawFunction);
+    // requestAnimationFrame(drawFunction);
   };
   
   requestAnimationFrame(drawFunction);

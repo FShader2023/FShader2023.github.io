@@ -1,79 +1,65 @@
+.top-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  margin: 0px 50px;
+  gap: 30px 2%;
+  justify-content: space-evenly;
+  justify-items: center;
+}
+
+
 #opengl-canvas {
     border: none;
 }
 
-#shader_source, #console {
+.instruction {
+  grid-row: span 3;
+  margin-left: 30px;
+}
+
+.shader-source, #console {
+  width: 100%;
+}
+
+.source1 {
+  /* grid-row-start: 2;
+  grid-row-end: 3; */
+  grid-row: 2 3;
+  grid-column: 2 3;
+}
+
+
+.source2 {
+  grid-row-start: 3;
+  grid-row-end: 4;
+  grid-column-start: 2;
+  grid-column-end: 3;
+}
+
+textarea {
     width: 100%;
     height: 200px;
-    float: left;
-    clear: both;
-    resize: none;
 }
 
 button {
     width: max-content;
 }
 
-/* The grid container */
-.grid-container {
-  display: grid;
-  grid-template-areas: 
-    'left right';
-  grid-column-gap: 10px;
-  /* width: min-content; */
-} 
-
-.left {
-  display: grid;
-  padding: 10px;
-  text-align: left;
-  float: left;
-  max-width: 618px;
-}
-
-.left {
-  grid-area: left;
-}
-
-.right {
-  width: 80%;
-  float: left;
-  max-width: 600px;
-}
-
-.cell {
-    display: flex;
-    vertical-align: top;
-}
-
-button {
-  padding: 0px 10%;
-}
-
-.button-row {
-  display: flex;
-  justify-content: space-between;
-  padding: 0px 10%;
-}
-
-.row {
-    margin: 8px 0px;
-}
-
-div.polaroid {
+.image-box {
   position: relative;
   width: 256px;
+  height: min-content;
   background-color: white;
   box-shadow: 0 4px 8px 0 rgba(0, 0, 0, 0.2), 0 6px 20px 0 rgba(0, 0, 0, 0.19);
-  margin-bottom: 25px;
+  /* margin-bottom: 25px; */
 }
 
-div.container {
+.caption {
   text-align: center;
   padding: 10px 20px;
 }
 
-div.container div {
+/* div.container div {
   position: absolute;
   bottom: 0;
   right: 0;
@@ -85,27 +71,23 @@ div.container div {
   visibility: hidden;
   -webkit-transition: visibility 0s, opacity 0.5s linear; 
   transition: visibility 0s, opacity 0.5s linear;
-}
+} */
 
-div.polaroid:hover div.container div {
+/* div.polaroid:hover div.container div {
   width: 250px;
   padding: 5px 1px;
   visibility: visible;
   opacity: 0.7;
-}
+} */
 
-.image-column {
+/* .image-column {
   float: left;
   padding: 0px 25px;
-}
+} */
 
 /* Clearfix (clear floats) */
-.image-row::after {
+/* .image-row::after {
   content: "";
   clear: both;
   display: table;
-}
-
-.shader_location_input {
-    text-align: center;
-}
+} */
